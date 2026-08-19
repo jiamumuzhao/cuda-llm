@@ -1,0 +1,10 @@
+model_id Qwen/Qwen3-0.6B
+layer_index 0
+token_ids 840 20772 3170 1376
+hidden_size 1024
+q_heads 16
+kv_heads 8
+head_dim 128
+rms_norm_eps 1e-06
+rope_theta 1000000
+dtype float32

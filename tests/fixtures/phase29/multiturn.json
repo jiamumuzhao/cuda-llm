@@ -1,0 +1,6 @@
+[
+  {"role": "system", "content": "Be brief."},
+  {"role": "user", "content": "Hi"},
+  {"role": "assistant", "content": "OK"},
+  {"role": "user", "content": "你好？"}
+]

@@ -1,0 +1,24 @@
+#include "llm/cuda_check.h"
+#include "llm/ops.h"
+#include "llm/ops_cuda.h"
+#include <cuda_runtime.h>
+#include <cmath>
+#include <functional>
+#include <iostream>
+#include <stdexcept>
+#include <string>
+#include <vector>
+using namespace llm;
+static void fail(const std::string& s){throw std::runtime_error("test_embedding_lm_head_cuda: "+s);}
+static Tensor f16_cpu(const Tensor& x){Tensor h(DType::F16,x.shape());for(size_t i=0;i<x.numel();++i)h.set_f32(i,x.get_f32(i));return h;}
+static Tensor f32_from(const Tensor& x){Tensor f(DType::F32,x.shape());for(size_t i=0;i<x.numel();++i)f.set_f32(i,x.get_f32(i));return f;}
+static double cosine(const Tensor&a,const Tensor&b){double ab=0,aa=0,bb=0;for(size_t i=0;i<a.numel();++i){double x=a.get_f32(i),y=b.get_f32(i);ab+=x*y;aa+=x*x;bb+=y*y;}return aa==0||bb==0?(aa==bb?1:0):ab/std::sqrt(aa*bb);}
+static void metric(const std::string& n,const Tensor&a,const Tensor&b,float tol,double ctol){if(a.shape()!=b.shape())fail(n+" shape mismatch");Tensor ac=a.device()==DeviceType::CUDA?a.to(DeviceType::CPU):a;Tensor bc=b.device()==DeviceType::CUDA?b.to(DeviceType::CPU):b;float mx=0;double mean=0;for(size_t i=0;i<ac.numel();++i){float d=std::fabs(ac.get_f32(i)-bc.get_f32(i));mx=std::max(mx,d);mean+=d;}mean/=ac.numel();double c=cosine(ac,bc);std::cout<<n<<" shape=";for(auto d:a.shape())std::cout<<d<<"x";std::cout<<" dtype="<<dtype_name(a.dtype())<<" device="<<(a.device()==DeviceType::CPU?"CPU":"CUDA")<<" max_abs_error="<<mx<<" mean_abs_error="<<mean<<" cosine_similarity="<<c<<" tolerance="<<tol<<"\n";if(mx>tol||c<ctol)fail(n+" numeric threshold failed");}
+static void expect_throw(const std::string&n,const std::function<void()>&fn){try{fn();}catch(const std::exception&e){std::cout<<"rejected "<<n<<": "<<e.what()<<"\n";return;}fail(n+" was accepted");}
+int main(){try{cudaDeviceProp p{};CUDA_CHECK(cudaGetDeviceProperties(&p,0));std::cout<<"CUDA device="<<p.name<<" compute_capability="<<p.major<<"."<<p.minor<<"\n";
+  const int vocab=7,hidden=4;Tensor ew=Tensor::from_f32({vocab,hidden},{.01f,.02f,.03f,.04f,.10f,.20f,.30f,.40f,-.10f,-.20f,-.30f,-.40f,.50f,.60f,.70f,.80f,-.50f,-.60f,-.70f,-.80f,.90f,.80f,.70f,.60f,-.90f,-.80f,-.70f,-.60f});std::vector<int32_t> ids{0,3,6,2};Tensor ew_cuda=ew.to(DeviceType::CUDA);auto emb=cuda_embedding_lookup(ew_cuda,ids);metric("cuda_embedding_lookup_f32",emb,embedding_lookup(ew,ids),0,1.0);
+  Tensor h=Tensor::from_f32({3,hidden},{.1f,.2f,.3f,.4f,-.1f,.05f,.2f,-.2f,.3f,-.3f,.1f,0}),norm=Tensor::from_f32({hidden},{1,.5f,1,-1});float eps=1e-5f;auto final_cuda=cuda_rms_norm(h.to(DeviceType::CUDA),norm.to(DeviceType::CUDA),eps);auto logits=cuda_lm_head(final_cuda,ew_cuda);auto expected=lm_head(rms_norm(h,norm,eps),ew);metric("cuda_final_norm_lm_head_f32",logits,expected,1e-4f,.99999);
+  Tensor ew16=f16_cpu(ew),h16=f16_cpu(h),norm16=f16_cpu(norm);auto emb16=cuda_embedding_lookup(ew16.to(DeviceType::CUDA),ids);metric("cuda_embedding_lookup_f16",emb16,f32_from(embedding_lookup(f32_from(ew16),ids)),5e-3f,.999);auto final16=cuda_rms_norm(h16.to(DeviceType::CUDA),norm16.to(DeviceType::CUDA),eps);auto logits16=cuda_lm_head(final16,ew16.to(DeviceType::CUDA));auto expected16=lm_head(rms_norm(f32_from(h16),f32_from(norm16),eps),f32_from(ew16));metric("cuda_final_norm_lm_head_f16",logits16,expected16,5e-3f,.999);
+  // The same ew_cuda object is intentionally used for both tied operations.
+  if(emb.device()!=DeviceType::CUDA||logits.device()!=DeviceType::CUDA)fail("tied embedding/lm_head device contract");
+  expect_throw("embedding CPU weight",[&]{cuda_embedding_lookup(ew,ids);});expect_throw("embedding rank",[&]{cuda_embedding_lookup(Tensor(DType::F32,{vocab,hidden,1},DeviceType::CUDA),ids);});expect_throw("embedding negative token",[&]{cuda_embedding_lookup(ew_cuda,{-1});});expect_throw("embedding token out of range",[&]{cuda_embedding_lookup(ew_cuda,{vocab});});expect_throw("embedding empty ids",[&]{cuda_embedding_lookup(ew_cuda,{});});expect_throw("lm_head CPU hidden",[&]{cuda_lm_head(h,ew_cuda);});expect_throw("lm_head CPU embedding",[&]{cuda_lm_head(h.to(DeviceType::CUDA),ew);});expect_throw("lm_head dtype mismatch",[&]{cuda_lm_head(h16.to(DeviceType::CUDA),ew_cuda);});expect_throw("lm_head hidden mismatch",[&]{cuda_lm_head(Tensor(DType::F32,{3,hidden+1},DeviceType::CUDA),ew_cuda);});expect_throw("lm_head embedding rank",[&]{cuda_lm_head(h.to(DeviceType::CUDA),Tensor(DType::F32,{vocab,hidden,1},DeviceType::CUDA));});expect_throw("final norm shape",[&]{cuda_rms_norm(h.to(DeviceType::CUDA),Tensor(DType::F32,{hidden+1},DeviceType::CUDA),eps);});expect_throw("final norm epsilon",[&]{cuda_rms_norm(h.to(DeviceType::CUDA),norm.to(DeviceType::CUDA),0);});CUDA_CHECK(cudaDeviceSynchronize());std::cout<<"test_embedding_lm_head_cuda passed\n";return 0;}catch(const std::exception&e){std::cerr<<e.what()<<"\n";return 1;}}

@@ -1,0 +1,8 @@
+input_ids input_ids.i32.bin 1 8 i32
+position_ids position_ids.i32.bin 1 8 i32
+embedding_output embedding_output.f32.bin 2 8 1024 f32
+final_hidden final_hidden.f32.bin 2 8 1024 f32
+logits logits.f32.bin 2 8 151936 f32
+last_token_greedy_id last_token_greedy_id.i32.bin 0  i32
+last_token_top5_ids last_token_top5_ids.i32.bin 1 5 i32
+last_token_top5_logits last_token_top5_logits.f32.bin 1 5 f32

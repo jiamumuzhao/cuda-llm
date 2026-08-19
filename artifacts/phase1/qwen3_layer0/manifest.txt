@@ -1,0 +1,30 @@
+input_layernorm_weight input_layernorm_weight.f32 1 1024
+q_proj_weight q_proj_weight.f32 2 2048 1024
+k_proj_weight k_proj_weight.f32 2 1024 1024
+v_proj_weight v_proj_weight.f32 2 1024 1024
+q_norm_weight q_norm_weight.f32 1 128
+k_norm_weight k_norm_weight.f32 1 128
+o_proj_weight o_proj_weight.f32 2 1024 2048
+post_attention_layernorm_weight post_attention_layernorm_weight.f32 1 1024
+gate_proj_weight gate_proj_weight.f32 2 3072 1024
+up_proj_weight up_proj_weight.f32 2 3072 1024
+down_proj_weight down_proj_weight.f32 2 1024 3072
+hidden_states hidden_states.f32 2 4 1024
+input_norm input_norm.f32 2 4 1024
+q_linear q_linear.f32 2 4 2048
+q_norm_output q_norm_output.f32 3 4 16 128
+k_linear k_linear.f32 2 4 1024
+k_norm_output k_norm_output.f32 3 4 8 128
+v_linear v_linear.f32 2 4 1024
+q_rope q_rope.f32 3 4 16 128
+k_rope k_rope.f32 3 4 8 128
+attention_output attention_output.f32 2 4 2048
+o_proj_output o_proj_output.f32 2 4 1024
+attention_residual attention_residual.f32 2 4 1024
+post_attention_norm post_attention_norm.f32 2 4 1024
+gate_proj_output gate_proj_output.f32 2 4 3072
+up_proj_output up_proj_output.f32 2 4 3072
+swiglu_output swiglu_output.f32 2 4 3072
+down_proj_output down_proj_output.f32 2 4 1024
+layer_output layer_output.f32 2 4 1024
+position_ids position_ids.f32 1 4

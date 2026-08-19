@@ -1,0 +1,221 @@
+{
+  "cases": {
+    "case_seq4": {
+      "last_token_greedy_id": 1095,
+      "last_token_top5_ids": [
+        1095,
+        43415,
+        480,
+        2897,
+        19488
+      ],
+      "last_token_top5_logits": [
+        17.053239822387695,
+        15.133323669433594,
+        13.371302604675293,
+        13.018058776855469,
+        12.892675399780273
+      ],
+      "position_ids": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "tensors": {
+        "embedding_output": {
+          "dtype": "f32",
+          "file": "embedding_output.f32.bin",
+          "rank": 2,
+          "shape": [
+            4,
+            1024
+          ]
+        },
+        "final_hidden": {
+          "dtype": "f32",
+          "file": "final_hidden.f32.bin",
+          "rank": 2,
+          "shape": [
+            4,
+            1024
+          ]
+        },
+        "input_ids": {
+          "dtype": "i32",
+          "file": "input_ids.i32.bin",
+          "rank": 1,
+          "shape": [
+            4
+          ]
+        },
+        "last_token_greedy_id": {
+          "dtype": "i32",
+          "file": "last_token_greedy_id.i32.bin",
+          "rank": 0,
+          "shape": []
+        },
+        "last_token_top5_ids": {
+          "dtype": "i32",
+          "file": "last_token_top5_ids.i32.bin",
+          "rank": 1,
+          "shape": [
+            5
+          ]
+        },
+        "last_token_top5_logits": {
+          "dtype": "f32",
+          "file": "last_token_top5_logits.f32.bin",
+          "rank": 1,
+          "shape": [
+            5
+          ]
+        },
+        "logits": {
+          "dtype": "f32",
+          "file": "logits.f32.bin",
+          "rank": 2,
+          "shape": [
+            4,
+            151936
+          ]
+        },
+        "position_ids": {
+          "dtype": "i32",
+          "file": "position_ids.i32.bin",
+          "rank": 1,
+          "shape": [
+            4
+          ]
+        }
+      },
+      "token_ids": [
+        1,
+        17,
+        257,
+        4097
+      ]
+    },
+    "case_seq8": {
+      "last_token_greedy_id": 13724,
+      "last_token_top5_ids": [
+        13724,
+        441,
+        13082,
+        321,
+        724
+      ],
+      "last_token_top5_logits": [
+        13.953522682189941,
+        13.694486618041992,
+        12.512035369873047,
+        11.83653450012207,
+        11.685763359069824
+      ],
+      "position_ids": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "tensors": {
+        "embedding_output": {
+          "dtype": "f32",
+          "file": "embedding_output.f32.bin",
+          "rank": 2,
+          "shape": [
+            8,
+            1024
+          ]
+        },
+        "final_hidden": {
+          "dtype": "f32",
+          "file": "final_hidden.f32.bin",
+          "rank": 2,
+          "shape": [
+            8,
+            1024
+          ]
+        },
+        "input_ids": {
+          "dtype": "i32",
+          "file": "input_ids.i32.bin",
+          "rank": 1,
+          "shape": [
+            8
+          ]
+        },
+        "last_token_greedy_id": {
+          "dtype": "i32",
+          "file": "last_token_greedy_id.i32.bin",
+          "rank": 0,
+          "shape": []
+        },
+        "last_token_top5_ids": {
+          "dtype": "i32",
+          "file": "last_token_top5_ids.i32.bin",
+          "rank": 1,
+          "shape": [
+            5
+          ]
+        },
+        "last_token_top5_logits": {
+          "dtype": "f32",
+          "file": "last_token_top5_logits.f32.bin",
+          "rank": 1,
+          "shape": [
+            5
+          ]
+        },
+        "logits": {
+          "dtype": "f32",
+          "file": "logits.f32.bin",
+          "rank": 2,
+          "shape": [
+            8,
+            151936
+          ]
+        },
+        "position_ids": {
+          "dtype": "i32",
+          "file": "position_ids.i32.bin",
+          "rank": 1,
+          "shape": [
+            8
+          ]
+        }
+      },
+      "token_ids": [
+        1,
+        17,
+        257,
+        4097,
+        8193,
+        16385,
+        32769,
+        65537
+      ]
+    }
+  },
+  "cuda_version": "13.0",
+  "export_dtype": "f32",
+  "model_id": "Qwen/Qwen3-0.6B",
+  "source_checksum_sha256": "f47f71177f32bcd101b7573ec9171e6a57f4f4d31148d38e382306f42996874b",
+  "source_config": {
+    "head_dim": 128,
+    "hidden_size": 1024,
+    "intermediate_size": 3072,
+    "num_attention_heads": 16,
+    "num_hidden_layers": 28,
+    "num_key_value_heads": 8,
+    "rms_norm_eps": 1e-06,
+    "rope_theta": 1000000.0,
+    "vocab_size": 151936
+  },
+  "torch_version": "2.11.0+cu130",
+  "transformers_version": "5.12.1"
+}

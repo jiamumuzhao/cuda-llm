@@ -1,0 +1,316 @@
+source_snapshot /root/.cache/huggingface/hub/models--Qwen--Qwen3-0.6B/snapshots/c1899de289a04d12100db370d81485cdf75e47ca
+source_file model.safetensors
+source_sha256 f47f71177f32bcd101b7573ec9171e6a57f4f4d31148d38e382306f42996874b
+physical_tensor_count 310
+alias_count 1
+weights_bin_bytes 2384199680
+token_embedding shape=[151936, 1024] offset=0 byte_size=622329856 fnv1a64=c6e8595302809de8
+final_norm shape=[1024] offset=622329856 byte_size=4096 fnv1a64=4c89c50dc8934ea1
+layers.0.input_norm shape=[1024] offset=622333952 byte_size=4096 fnv1a64=4a75cdb8728eae31
+layers.0.q_proj shape=[2048, 1024] offset=622338048 byte_size=8388608 fnv1a64=b16fc744bd7b356b
+layers.0.k_proj shape=[1024, 1024] offset=630726656 byte_size=4194304 fnv1a64=6e0a8a35f0b0ced6
+layers.0.v_proj shape=[1024, 1024] offset=634920960 byte_size=4194304 fnv1a64=514d74c2348d6b2f
+layers.0.q_norm shape=[128] offset=639115264 byte_size=512 fnv1a64=68ff6406a955eea2
+layers.0.k_norm shape=[128] offset=639115776 byte_size=512 fnv1a64=236249d607415538
+layers.0.o_proj shape=[1024, 2048] offset=639116288 byte_size=8388608 fnv1a64=94bc7c82d95ed39a
+layers.0.post_attention_norm shape=[1024] offset=647504896 byte_size=4096 fnv1a64=89e5b6f80cf10a8d
+layers.0.gate_proj shape=[3072, 1024] offset=647508992 byte_size=12582912 fnv1a64=c0d6e44cb2cb0813
+layers.0.up_proj shape=[3072, 1024] offset=660091904 byte_size=12582912 fnv1a64=0dec793fbbdb6108
+layers.0.down_proj shape=[1024, 3072] offset=672674816 byte_size=12582912 fnv1a64=82d4d03f16863c77
+layers.1.input_norm shape=[1024] offset=685257728 byte_size=4096 fnv1a64=6456e8b01832252c
+layers.1.q_proj shape=[2048, 1024] offset=685261824 byte_size=8388608 fnv1a64=134b74a7f9e245f1
+layers.1.k_proj shape=[1024, 1024] offset=693650432 byte_size=4194304 fnv1a64=ad22e9ae5d32c95b
+layers.1.v_proj shape=[1024, 1024] offset=697844736 byte_size=4194304 fnv1a64=8f3a3ca2c49c5a8c
+layers.1.q_norm shape=[128] offset=702039040 byte_size=512 fnv1a64=10701cbd28ead36e
+layers.1.k_norm shape=[128] offset=702039552 byte_size=512 fnv1a64=59da3b1d617b13c1
+layers.1.o_proj shape=[1024, 2048] offset=702040064 byte_size=8388608 fnv1a64=9feec1ad71ecc10e
+layers.1.post_attention_norm shape=[1024] offset=710428672 byte_size=4096 fnv1a64=b3a46dad9256559f
+layers.1.gate_proj shape=[3072, 1024] offset=710432768 byte_size=12582912 fnv1a64=dc2ba8781d0ab4a8
+layers.1.up_proj shape=[3072, 1024] offset=723015680 byte_size=12582912 fnv1a64=fb3477aa3f4ad9da
+layers.1.down_proj shape=[1024, 3072] offset=735598592 byte_size=12582912 fnv1a64=27fe4ae5936bbcd7
+layers.2.input_norm shape=[1024] offset=748181504 byte_size=4096 fnv1a64=7f380e610691f0b8
+layers.2.q_proj shape=[2048, 1024] offset=748185600 byte_size=8388608 fnv1a64=5101b5dbc7f2018d
+layers.2.k_proj shape=[1024, 1024] offset=756574208 byte_size=4194304 fnv1a64=c132b567bf085f01
+layers.2.v_proj shape=[1024, 1024] offset=760768512 byte_size=4194304 fnv1a64=cf231637ec38691b
+layers.2.q_norm shape=[128] offset=764962816 byte_size=512 fnv1a64=c6748f15e68ccbdd
+layers.2.k_norm shape=[128] offset=764963328 byte_size=512 fnv1a64=fa47324c6f62a756
+layers.2.o_proj shape=[1024, 2048] offset=764963840 byte_size=8388608 fnv1a64=f61010cc7ec10c16
+layers.2.post_attention_norm shape=[1024] offset=773352448 byte_size=4096 fnv1a64=76af8782c16b4051
+layers.2.gate_proj shape=[3072, 1024] offset=773356544 byte_size=12582912 fnv1a64=57b3db9770e69aaa
+layers.2.up_proj shape=[3072, 1024] offset=785939456 byte_size=12582912 fnv1a64=e6129cf849f96ebd
+layers.2.down_proj shape=[1024, 3072] offset=798522368 byte_size=12582912 fnv1a64=dbf6b60675565324
+layers.3.input_norm shape=[1024] offset=811105280 byte_size=4096 fnv1a64=d753d89df488edf8
+layers.3.q_proj shape=[2048, 1024] offset=811109376 byte_size=8388608 fnv1a64=ef66957b12b85929
+layers.3.k_proj shape=[1024, 1024] offset=819497984 byte_size=4194304 fnv1a64=03b1bd76004e1d45
+layers.3.v_proj shape=[1024, 1024] offset=823692288 byte_size=4194304 fnv1a64=007a84d12f509bd1
+layers.3.q_norm shape=[128] offset=827886592 byte_size=512 fnv1a64=67face50622a79c5
+layers.3.k_norm shape=[128] offset=827887104 byte_size=512 fnv1a64=d7294347eee11aa3
+layers.3.o_proj shape=[1024, 2048] offset=827887616 byte_size=8388608 fnv1a64=9bb34ef90eb22412
+layers.3.post_attention_norm shape=[1024] offset=836276224 byte_size=4096 fnv1a64=8974eda4a24fb870
+layers.3.gate_proj shape=[3072, 1024] offset=836280320 byte_size=12582912 fnv1a64=4cd39c2cb491e27a
+layers.3.up_proj shape=[3072, 1024] offset=848863232 byte_size=12582912 fnv1a64=1b9658beb59e8b43
+layers.3.down_proj shape=[1024, 3072] offset=861446144 byte_size=12582912 fnv1a64=4daf0f05f56da324
+layers.4.input_norm shape=[1024] offset=874029056 byte_size=4096 fnv1a64=acfd0c2f0305f282
+layers.4.q_proj shape=[2048, 1024] offset=874033152 byte_size=8388608 fnv1a64=eab38969983246ed
+layers.4.k_proj shape=[1024, 1024] offset=882421760 byte_size=4194304 fnv1a64=316ed50d9e546f03
+layers.4.v_proj shape=[1024, 1024] offset=886616064 byte_size=4194304 fnv1a64=64c3c24c5e5efaf5
+layers.4.q_norm shape=[128] offset=890810368 byte_size=512 fnv1a64=81a72540c414ce31
+layers.4.k_norm shape=[128] offset=890810880 byte_size=512 fnv1a64=212d8ecd4f37f3d8
+layers.4.o_proj shape=[1024, 2048] offset=890811392 byte_size=8388608 fnv1a64=6b50b96adb80072c
+layers.4.post_attention_norm shape=[1024] offset=899200000 byte_size=4096 fnv1a64=3e0f9ad9cfbb888e
+layers.4.gate_proj shape=[3072, 1024] offset=899204096 byte_size=12582912 fnv1a64=3c784b306276b28c
+layers.4.up_proj shape=[3072, 1024] offset=911787008 byte_size=12582912 fnv1a64=eec4fd815afb1ca3
+layers.4.down_proj shape=[1024, 3072] offset=924369920 byte_size=12582912 fnv1a64=459d71da9f7b405e
+layers.5.input_norm shape=[1024] offset=936952832 byte_size=4096 fnv1a64=dd8fce486d7e1f76
+layers.5.q_proj shape=[2048, 1024] offset=936956928 byte_size=8388608 fnv1a64=71ce48d806426237
+layers.5.k_proj shape=[1024, 1024] offset=945345536 byte_size=4194304 fnv1a64=05613fa8ee724d67
+layers.5.v_proj shape=[1024, 1024] offset=949539840 byte_size=4194304 fnv1a64=eba996826956bd90
+layers.5.q_norm shape=[128] offset=953734144 byte_size=512 fnv1a64=d5758a217c6e68e0
+layers.5.k_norm shape=[128] offset=953734656 byte_size=512 fnv1a64=626e687c37aa7507
+layers.5.o_proj shape=[1024, 2048] offset=953735168 byte_size=8388608 fnv1a64=8ac7277bc7b944a4
+layers.5.post_attention_norm shape=[1024] offset=962123776 byte_size=4096 fnv1a64=c73bacabc6349f88
+layers.5.gate_proj shape=[3072, 1024] offset=962127872 byte_size=12582912 fnv1a64=bd5247faa4c57ec5
+layers.5.up_proj shape=[3072, 1024] offset=974710784 byte_size=12582912 fnv1a64=6f4ae413dea1d600
+layers.5.down_proj shape=[1024, 3072] offset=987293696 byte_size=12582912 fnv1a64=366be86e799e89da
+layers.6.input_norm shape=[1024] offset=999876608 byte_size=4096 fnv1a64=40d0abcdaf0d0047
+layers.6.q_proj shape=[2048, 1024] offset=999880704 byte_size=8388608 fnv1a64=a11e486ba77508e4
+layers.6.k_proj shape=[1024, 1024] offset=1008269312 byte_size=4194304 fnv1a64=c844a12eb47767d3
+layers.6.v_proj shape=[1024, 1024] offset=1012463616 byte_size=4194304 fnv1a64=b8b921eacec2d4a4
+layers.6.q_norm shape=[128] offset=1016657920 byte_size=512 fnv1a64=92bdee5faae2b3c7
+layers.6.k_norm shape=[128] offset=1016658432 byte_size=512 fnv1a64=3d23ec6506f1808e
+layers.6.o_proj shape=[1024, 2048] offset=1016658944 byte_size=8388608 fnv1a64=642939bc5fc2fb93
+layers.6.post_attention_norm shape=[1024] offset=1025047552 byte_size=4096 fnv1a64=f7c475e0001e6253
+layers.6.gate_proj shape=[3072, 1024] offset=1025051648 byte_size=12582912 fnv1a64=ec3ac11bd04cb224
+layers.6.up_proj shape=[3072, 1024] offset=1037634560 byte_size=12582912 fnv1a64=058566ef3e9ff6df
+layers.6.down_proj shape=[1024, 3072] offset=1050217472 byte_size=12582912 fnv1a64=24c4a1d5258d3655
+layers.7.input_norm shape=[1024] offset=1062800384 byte_size=4096 fnv1a64=80709249e311a04b
+layers.7.q_proj shape=[2048, 1024] offset=1062804480 byte_size=8388608 fnv1a64=e8cee2f80f5dd720
+layers.7.k_proj shape=[1024, 1024] offset=1071193088 byte_size=4194304 fnv1a64=3562ab7c9ffd1edb
+layers.7.v_proj shape=[1024, 1024] offset=1075387392 byte_size=4194304 fnv1a64=852035d05fdb9ef4
+layers.7.q_norm shape=[128] offset=1079581696 byte_size=512 fnv1a64=d3c511bb4e60c630
+layers.7.k_norm shape=[128] offset=1079582208 byte_size=512 fnv1a64=a2ab57bdb8cc6d75
+layers.7.o_proj shape=[1024, 2048] offset=1079582720 byte_size=8388608 fnv1a64=d1f1d7a406c01a03
+layers.7.post_attention_norm shape=[1024] offset=1087971328 byte_size=4096 fnv1a64=5cfa8f8349316133
+layers.7.gate_proj shape=[3072, 1024] offset=1087975424 byte_size=12582912 fnv1a64=3fcd7bd115de428e
+layers.7.up_proj shape=[3072, 1024] offset=1100558336 byte_size=12582912 fnv1a64=02f73f8f47a61172
+layers.7.down_proj shape=[1024, 3072] offset=1113141248 byte_size=12582912 fnv1a64=7026a727b7cb8cd0
+layers.8.input_norm shape=[1024] offset=1125724160 byte_size=4096 fnv1a64=9a7afb10ddb3dcfd
+layers.8.q_proj shape=[2048, 1024] offset=1125728256 byte_size=8388608 fnv1a64=3b5bdd7f53d111a6
+layers.8.k_proj shape=[1024, 1024] offset=1134116864 byte_size=4194304 fnv1a64=67d90f706b377ce0
+layers.8.v_proj shape=[1024, 1024] offset=1138311168 byte_size=4194304 fnv1a64=69e74a718387c6dd
+layers.8.q_norm shape=[128] offset=1142505472 byte_size=512 fnv1a64=342731d187836ee3
+layers.8.k_norm shape=[128] offset=1142505984 byte_size=512 fnv1a64=21844b425fcfca9b
+layers.8.o_proj shape=[1024, 2048] offset=1142506496 byte_size=8388608 fnv1a64=fa3ec56fff9f90e4
+layers.8.post_attention_norm shape=[1024] offset=1150895104 byte_size=4096 fnv1a64=994c33af196f6182
+layers.8.gate_proj shape=[3072, 1024] offset=1150899200 byte_size=12582912 fnv1a64=cded8bda6812ff0c
+layers.8.up_proj shape=[3072, 1024] offset=1163482112 byte_size=12582912 fnv1a64=cb608f8dfb3a5f8b
+layers.8.down_proj shape=[1024, 3072] offset=1176065024 byte_size=12582912 fnv1a64=4de33377fd973272
+layers.9.input_norm shape=[1024] offset=1188647936 byte_size=4096 fnv1a64=2a1e087a36c4a936
+layers.9.q_proj shape=[2048, 1024] offset=1188652032 byte_size=8388608 fnv1a64=2595c8dec543dd82
+layers.9.k_proj shape=[1024, 1024] offset=1197040640 byte_size=4194304 fnv1a64=5fe97bee1a2ef7a3
+layers.9.v_proj shape=[1024, 1024] offset=1201234944 byte_size=4194304 fnv1a64=5d622aac3f401fdf
+layers.9.q_norm shape=[128] offset=1205429248 byte_size=512 fnv1a64=1d946d86e4b9911d
+layers.9.k_norm shape=[128] offset=1205429760 byte_size=512 fnv1a64=3ae3134cf6532a0d
+layers.9.o_proj shape=[1024, 2048] offset=1205430272 byte_size=8388608 fnv1a64=db8305d76f9719d9
+layers.9.post_attention_norm shape=[1024] offset=1213818880 byte_size=4096 fnv1a64=a2aa871b19ec64c3
+layers.9.gate_proj shape=[3072, 1024] offset=1213822976 byte_size=12582912 fnv1a64=4372656cedb32c5a
+layers.9.up_proj shape=[3072, 1024] offset=1226405888 byte_size=12582912 fnv1a64=fa9e7065c8c42206
+layers.9.down_proj shape=[1024, 3072] offset=1238988800 byte_size=12582912 fnv1a64=43c14a5cb34c478c
+layers.10.input_norm shape=[1024] offset=1251571712 byte_size=4096 fnv1a64=7d6454e01ffe1f99
+layers.10.q_proj shape=[2048, 1024] offset=1251575808 byte_size=8388608 fnv1a64=72b3e87c7b4b9e2d
+layers.10.k_proj shape=[1024, 1024] offset=1259964416 byte_size=4194304 fnv1a64=ad6e14fde1f0162b
+layers.10.v_proj shape=[1024, 1024] offset=1264158720 byte_size=4194304 fnv1a64=3b0a4b70f31fbde9
+layers.10.q_norm shape=[128] offset=1268353024 byte_size=512 fnv1a64=40057bf846989322
+layers.10.k_norm shape=[128] offset=1268353536 byte_size=512 fnv1a64=49340d3fe2184351
+layers.10.o_proj shape=[1024, 2048] offset=1268354048 byte_size=8388608 fnv1a64=b6d1282dbbda89a9
+layers.10.post_attention_norm shape=[1024] offset=1276742656 byte_size=4096 fnv1a64=9b4b2d574bc0767a
+layers.10.gate_proj shape=[3072, 1024] offset=1276746752 byte_size=12582912 fnv1a64=2b35fc2541022815
+layers.10.up_proj shape=[3072, 1024] offset=1289329664 byte_size=12582912 fnv1a64=4a7a727332cc6a3b
+layers.10.down_proj shape=[1024, 3072] offset=1301912576 byte_size=12582912 fnv1a64=f7724efd92a2ec8f
+layers.11.input_norm shape=[1024] offset=1314495488 byte_size=4096 fnv1a64=19c700d35ce1994b
+layers.11.q_proj shape=[2048, 1024] offset=1314499584 byte_size=8388608 fnv1a64=dadc09e622626ec5
+layers.11.k_proj shape=[1024, 1024] offset=1322888192 byte_size=4194304 fnv1a64=1417ca1ce1b62e79
+layers.11.v_proj shape=[1024, 1024] offset=1327082496 byte_size=4194304 fnv1a64=d9b5e5c01a5dc7f0
+layers.11.q_norm shape=[128] offset=1331276800 byte_size=512 fnv1a64=778b5dc944f078a3
+layers.11.k_norm shape=[128] offset=1331277312 byte_size=512 fnv1a64=c233e4f000aadf52
+layers.11.o_proj shape=[1024, 2048] offset=1331277824 byte_size=8388608 fnv1a64=1863957900a561c5
+layers.11.post_attention_norm shape=[1024] offset=1339666432 byte_size=4096 fnv1a64=68e541cf143e1e4d
+layers.11.gate_proj shape=[3072, 1024] offset=1339670528 byte_size=12582912 fnv1a64=373c69ac0072f496
+layers.11.up_proj shape=[3072, 1024] offset=1352253440 byte_size=12582912 fnv1a64=edcfa4417e6f9529
+layers.11.down_proj shape=[1024, 3072] offset=1364836352 byte_size=12582912 fnv1a64=7708dadce762c52a
+layers.12.input_norm shape=[1024] offset=1377419264 byte_size=4096 fnv1a64=110992ef43fb471a
+layers.12.q_proj shape=[2048, 1024] offset=1377423360 byte_size=8388608 fnv1a64=22744557c2ed689d
+layers.12.k_proj shape=[1024, 1024] offset=1385811968 byte_size=4194304 fnv1a64=aa4676f508cf10c9
+layers.12.v_proj shape=[1024, 1024] offset=1390006272 byte_size=4194304 fnv1a64=ca443431202353b4
+layers.12.q_norm shape=[128] offset=1394200576 byte_size=512 fnv1a64=9eb87462f1f8a691
+layers.12.k_norm shape=[128] offset=1394201088 byte_size=512 fnv1a64=229593ae141411a7
+layers.12.o_proj shape=[1024, 2048] offset=1394201600 byte_size=8388608 fnv1a64=82f0fbff39dd688f
+layers.12.post_attention_norm shape=[1024] offset=1402590208 byte_size=4096 fnv1a64=358578a4a6fc0981
+layers.12.gate_proj shape=[3072, 1024] offset=1402594304 byte_size=12582912 fnv1a64=5d5c8d6ea26cb898
+layers.12.up_proj shape=[3072, 1024] offset=1415177216 byte_size=12582912 fnv1a64=63bf783729c1f397
+layers.12.down_proj shape=[1024, 3072] offset=1427760128 byte_size=12582912 fnv1a64=6f342f51c93057a4
+layers.13.input_norm shape=[1024] offset=1440343040 byte_size=4096 fnv1a64=e2a457ac58dd28e4
+layers.13.q_proj shape=[2048, 1024] offset=1440347136 byte_size=8388608 fnv1a64=c177ee628a1e364d
+layers.13.k_proj shape=[1024, 1024] offset=1448735744 byte_size=4194304 fnv1a64=7fa9f3029c67b635
+layers.13.v_proj shape=[1024, 1024] offset=1452930048 byte_size=4194304 fnv1a64=d8595c64ad7c6e40
+layers.13.q_norm shape=[128] offset=1457124352 byte_size=512 fnv1a64=0ab496736f441f42
+layers.13.k_norm shape=[128] offset=1457124864 byte_size=512 fnv1a64=83043274bdde093b
+layers.13.o_proj shape=[1024, 2048] offset=1457125376 byte_size=8388608 fnv1a64=1164b494982a0db0
+layers.13.post_attention_norm shape=[1024] offset=1465513984 byte_size=4096 fnv1a64=150829684df78c8a
+layers.13.gate_proj shape=[3072, 1024] offset=1465518080 byte_size=12582912 fnv1a64=8c7e8175a4ace138
+layers.13.up_proj shape=[3072, 1024] offset=1478100992 byte_size=12582912 fnv1a64=53e2d7b6277e0a85
+layers.13.down_proj shape=[1024, 3072] offset=1490683904 byte_size=12582912 fnv1a64=566b4728814495cb
+layers.14.input_norm shape=[1024] offset=1503266816 byte_size=4096 fnv1a64=0a7bf5e31b433e7d
+layers.14.q_proj shape=[2048, 1024] offset=1503270912 byte_size=8388608 fnv1a64=356c6363794a1e95
+layers.14.k_proj shape=[1024, 1024] offset=1511659520 byte_size=4194304 fnv1a64=bda5477c48158495
+layers.14.v_proj shape=[1024, 1024] offset=1515853824 byte_size=4194304 fnv1a64=5cdd17d593e476c4
+layers.14.q_norm shape=[128] offset=1520048128 byte_size=512 fnv1a64=ec8959cad8a589a8
+layers.14.k_norm shape=[128] offset=1520048640 byte_size=512 fnv1a64=a32936e96136383d
+layers.14.o_proj shape=[1024, 2048] offset=1520049152 byte_size=8388608 fnv1a64=00c113780e5ed8c4
+layers.14.post_attention_norm shape=[1024] offset=1528437760 byte_size=4096 fnv1a64=b1430d641f2ed895
+layers.14.gate_proj shape=[3072, 1024] offset=1528441856 byte_size=12582912 fnv1a64=960735f3adffadf4
+layers.14.up_proj shape=[3072, 1024] offset=1541024768 byte_size=12582912 fnv1a64=437dc03f26048538
+layers.14.down_proj shape=[1024, 3072] offset=1553607680 byte_size=12582912 fnv1a64=ee5089943cf0b7a9
+layers.15.input_norm shape=[1024] offset=1566190592 byte_size=4096 fnv1a64=c453f80e59aba7b6
+layers.15.q_proj shape=[2048, 1024] offset=1566194688 byte_size=8388608 fnv1a64=dad7f4334eec7705
+layers.15.k_proj shape=[1024, 1024] offset=1574583296 byte_size=4194304 fnv1a64=8a786d032e11bc2e
+layers.15.v_proj shape=[1024, 1024] offset=1578777600 byte_size=4194304 fnv1a64=8df425abbba4913a
+layers.15.q_norm shape=[128] offset=1582971904 byte_size=512 fnv1a64=70e84f43d2df4f83
+layers.15.k_norm shape=[128] offset=1582972416 byte_size=512 fnv1a64=8010db16a58556de
+layers.15.o_proj shape=[1024, 2048] offset=1582972928 byte_size=8388608 fnv1a64=a3b303fb5f2cfbc1
+layers.15.post_attention_norm shape=[1024] offset=1591361536 byte_size=4096 fnv1a64=5d2c03df6fb0e7c5
+layers.15.gate_proj shape=[3072, 1024] offset=1591365632 byte_size=12582912 fnv1a64=a01cb5c2e58597d2
+layers.15.up_proj shape=[3072, 1024] offset=1603948544 byte_size=12582912 fnv1a64=ba18689a538d4304
+layers.15.down_proj shape=[1024, 3072] offset=1616531456 byte_size=12582912 fnv1a64=8b72da5ef72f5657
+layers.16.input_norm shape=[1024] offset=1629114368 byte_size=4096 fnv1a64=fdaa4ec337b7370b
+layers.16.q_proj shape=[2048, 1024] offset=1629118464 byte_size=8388608 fnv1a64=1de9e2bb486b4ca4
+layers.16.k_proj shape=[1024, 1024] offset=1637507072 byte_size=4194304 fnv1a64=3dcdda05bf96eae8
+layers.16.v_proj shape=[1024, 1024] offset=1641701376 byte_size=4194304 fnv1a64=db321d7fd5c7fcae
+layers.16.q_norm shape=[128] offset=1645895680 byte_size=512 fnv1a64=a747f95509850003
+layers.16.k_norm shape=[128] offset=1645896192 byte_size=512 fnv1a64=cd117afbe154e3af
+layers.16.o_proj shape=[1024, 2048] offset=1645896704 byte_size=8388608 fnv1a64=a591c3e026d28491
+layers.16.post_attention_norm shape=[1024] offset=1654285312 byte_size=4096 fnv1a64=eff0aed39c787207
+layers.16.gate_proj shape=[3072, 1024] offset=1654289408 byte_size=12582912 fnv1a64=04a458b561ca6d4a
+layers.16.up_proj shape=[3072, 1024] offset=1666872320 byte_size=12582912 fnv1a64=26b153fc01c1a2c0
+layers.16.down_proj shape=[1024, 3072] offset=1679455232 byte_size=12582912 fnv1a64=bbe365c87d35c1ee
+layers.17.input_norm shape=[1024] offset=1692038144 byte_size=4096 fnv1a64=8ba33772668b0120
+layers.17.q_proj shape=[2048, 1024] offset=1692042240 byte_size=8388608 fnv1a64=56e11aa3e7d6c131
+layers.17.k_proj shape=[1024, 1024] offset=1700430848 byte_size=4194304 fnv1a64=8313d1324042d1a6
+layers.17.v_proj shape=[1024, 1024] offset=1704625152 byte_size=4194304 fnv1a64=c662fdb81ff7f386
+layers.17.q_norm shape=[128] offset=1708819456 byte_size=512 fnv1a64=4693965123326fb6
+layers.17.k_norm shape=[128] offset=1708819968 byte_size=512 fnv1a64=4ff869ef47f16ce8
+layers.17.o_proj shape=[1024, 2048] offset=1708820480 byte_size=8388608 fnv1a64=6cb0fa750c054a80
+layers.17.post_attention_norm shape=[1024] offset=1717209088 byte_size=4096 fnv1a64=13e1b96194a16d4e
+layers.17.gate_proj shape=[3072, 1024] offset=1717213184 byte_size=12582912 fnv1a64=8a29e657d29a1ccf
+layers.17.up_proj shape=[3072, 1024] offset=1729796096 byte_size=12582912 fnv1a64=5a1021d74bbf6e2f
+layers.17.down_proj shape=[1024, 3072] offset=1742379008 byte_size=12582912 fnv1a64=12013c40fef206f7
+layers.18.input_norm shape=[1024] offset=1754961920 byte_size=4096 fnv1a64=2749282a7dbfc463
+layers.18.q_proj shape=[2048, 1024] offset=1754966016 byte_size=8388608 fnv1a64=338629a63df62745
+layers.18.k_proj shape=[1024, 1024] offset=1763354624 byte_size=4194304 fnv1a64=a20c20399e2b3a96
+layers.18.v_proj shape=[1024, 1024] offset=1767548928 byte_size=4194304 fnv1a64=f6831bad8434a26f
+layers.18.q_norm shape=[128] offset=1771743232 byte_size=512 fnv1a64=2751e81db9488b48
+layers.18.k_norm shape=[128] offset=1771743744 byte_size=512 fnv1a64=5e2cf43a97b397fa
+layers.18.o_proj shape=[1024, 2048] offset=1771744256 byte_size=8388608 fnv1a64=7f213c5356e58d45
+layers.18.post_attention_norm shape=[1024] offset=1780132864 byte_size=4096 fnv1a64=bcb6e1a09e1bee73
+layers.18.gate_proj shape=[3072, 1024] offset=1780136960 byte_size=12582912 fnv1a64=643f167df5487f42
+layers.18.up_proj shape=[3072, 1024] offset=1792719872 byte_size=12582912 fnv1a64=d07bab3291514c6a
+layers.18.down_proj shape=[1024, 3072] offset=1805302784 byte_size=12582912 fnv1a64=8053e5950719ec6e
+layers.19.input_norm shape=[1024] offset=1817885696 byte_size=4096 fnv1a64=f1c8cc82a857ef6f
+layers.19.q_proj shape=[2048, 1024] offset=1817889792 byte_size=8388608 fnv1a64=06bd94da1033e9e1
+layers.19.k_proj shape=[1024, 1024] offset=1826278400 byte_size=4194304 fnv1a64=fddd5f78ccdf791d
+layers.19.v_proj shape=[1024, 1024] offset=1830472704 byte_size=4194304 fnv1a64=d280a10d5e8f1df8
+layers.19.q_norm shape=[128] offset=1834667008 byte_size=512 fnv1a64=ff32f5e3eab32658
+layers.19.k_norm shape=[128] offset=1834667520 byte_size=512 fnv1a64=965ee9e7c65c7f8f
+layers.19.o_proj shape=[1024, 2048] offset=1834668032 byte_size=8388608 fnv1a64=5f1579de558d3c5e
+layers.19.post_attention_norm shape=[1024] offset=1843056640 byte_size=4096 fnv1a64=aac629a97cb8f481
+layers.19.gate_proj shape=[3072, 1024] offset=1843060736 byte_size=12582912 fnv1a64=f17143a9cd6bfd7b
+layers.19.up_proj shape=[3072, 1024] offset=1855643648 byte_size=12582912 fnv1a64=1ff73e7760da138c
+layers.19.down_proj shape=[1024, 3072] offset=1868226560 byte_size=12582912 fnv1a64=bfed951a155c5ceb
+layers.20.input_norm shape=[1024] offset=1880809472 byte_size=4096 fnv1a64=0dbc00f874507ba3
+layers.20.q_proj shape=[2048, 1024] offset=1880813568 byte_size=8388608 fnv1a64=b46f6f7f38679c78
+layers.20.k_proj shape=[1024, 1024] offset=1889202176 byte_size=4194304 fnv1a64=885c2c4f1b1859c6
+layers.20.v_proj shape=[1024, 1024] offset=1893396480 byte_size=4194304 fnv1a64=9b6405e7a1627500
+layers.20.q_norm shape=[128] offset=1897590784 byte_size=512 fnv1a64=217ecb5ce68d90e3
+layers.20.k_norm shape=[128] offset=1897591296 byte_size=512 fnv1a64=4957551558474698
+layers.20.o_proj shape=[1024, 2048] offset=1897591808 byte_size=8388608 fnv1a64=0600bebadcdaab5f
+layers.20.post_attention_norm shape=[1024] offset=1905980416 byte_size=4096 fnv1a64=6a9b3ea007aa406d
+layers.20.gate_proj shape=[3072, 1024] offset=1905984512 byte_size=12582912 fnv1a64=82f0d507279c41d6
+layers.20.up_proj shape=[3072, 1024] offset=1918567424 byte_size=12582912 fnv1a64=966377e85dd4a648
+layers.20.down_proj shape=[1024, 3072] offset=1931150336 byte_size=12582912 fnv1a64=01aeb941a134240e
+layers.21.input_norm shape=[1024] offset=1943733248 byte_size=4096 fnv1a64=5a62f938d0eaed31
+layers.21.q_proj shape=[2048, 1024] offset=1943737344 byte_size=8388608 fnv1a64=12171a139ee1f765
+layers.21.k_proj shape=[1024, 1024] offset=1952125952 byte_size=4194304 fnv1a64=031ce3fd2bb34f8f
+layers.21.v_proj shape=[1024, 1024] offset=1956320256 byte_size=4194304 fnv1a64=393f51c2051f9084
+layers.21.q_norm shape=[128] offset=1960514560 byte_size=512 fnv1a64=a4935cd182c15701
+layers.21.k_norm shape=[128] offset=1960515072 byte_size=512 fnv1a64=42fa5a94b8104784
+layers.21.o_proj shape=[1024, 2048] offset=1960515584 byte_size=8388608 fnv1a64=03f0522da3c1861f
+layers.21.post_attention_norm shape=[1024] offset=1968904192 byte_size=4096 fnv1a64=6a03238cb4c16b96
+layers.21.gate_proj shape=[3072, 1024] offset=1968908288 byte_size=12582912 fnv1a64=96759a4fbede046e
+layers.21.up_proj shape=[3072, 1024] offset=1981491200 byte_size=12582912 fnv1a64=0d9159b84b20d569
+layers.21.down_proj shape=[1024, 3072] offset=1994074112 byte_size=12582912 fnv1a64=ad5dec7fbb3f3cfa
+layers.22.input_norm shape=[1024] offset=2006657024 byte_size=4096 fnv1a64=c91c914682fe300f
+layers.22.q_proj shape=[2048, 1024] offset=2006661120 byte_size=8388608 fnv1a64=6bd0a0c3d3d9ccc0
+layers.22.k_proj shape=[1024, 1024] offset=2015049728 byte_size=4194304 fnv1a64=85123777a2bfe761
+layers.22.v_proj shape=[1024, 1024] offset=2019244032 byte_size=4194304 fnv1a64=186659185a72ec46
+layers.22.q_norm shape=[128] offset=2023438336 byte_size=512 fnv1a64=d6d1885efe334547
+layers.22.k_norm shape=[128] offset=2023438848 byte_size=512 fnv1a64=51bace1ae99b7746
+layers.22.o_proj shape=[1024, 2048] offset=2023439360 byte_size=8388608 fnv1a64=8b3e9cda62cd0bca
+layers.22.post_attention_norm shape=[1024] offset=2031827968 byte_size=4096 fnv1a64=7d2f84777f8acc1b
+layers.22.gate_proj shape=[3072, 1024] offset=2031832064 byte_size=12582912 fnv1a64=0d9c2d5d9e842dcc
+layers.22.up_proj shape=[3072, 1024] offset=2044414976 byte_size=12582912 fnv1a64=da13a2630b84ba39
+layers.22.down_proj shape=[1024, 3072] offset=2056997888 byte_size=12582912 fnv1a64=fe263679ddeda808
+layers.23.input_norm shape=[1024] offset=2069580800 byte_size=4096 fnv1a64=292838fc31789d28
+layers.23.q_proj shape=[2048, 1024] offset=2069584896 byte_size=8388608 fnv1a64=a58942677fb709bf
+layers.23.k_proj shape=[1024, 1024] offset=2077973504 byte_size=4194304 fnv1a64=32a179cf7a521a28
+layers.23.v_proj shape=[1024, 1024] offset=2082167808 byte_size=4194304 fnv1a64=9413e9ef50bfe653
+layers.23.q_norm shape=[128] offset=2086362112 byte_size=512 fnv1a64=be39336f290fc5b5
+layers.23.k_norm shape=[128] offset=2086362624 byte_size=512 fnv1a64=9cf4d7fc0030fe59
+layers.23.o_proj shape=[1024, 2048] offset=2086363136 byte_size=8388608 fnv1a64=ef850c0a7a95e97a
+layers.23.post_attention_norm shape=[1024] offset=2094751744 byte_size=4096 fnv1a64=8fd9f15a905b0f69
+layers.23.gate_proj shape=[3072, 1024] offset=2094755840 byte_size=12582912 fnv1a64=6a2ab9c4116296e4
+layers.23.up_proj shape=[3072, 1024] offset=2107338752 byte_size=12582912 fnv1a64=129134579d1d7e35
+layers.23.down_proj shape=[1024, 3072] offset=2119921664 byte_size=12582912 fnv1a64=634f53910fb3736f
+layers.24.input_norm shape=[1024] offset=2132504576 byte_size=4096 fnv1a64=a515c78bc9f8ac2b
+layers.24.q_proj shape=[2048, 1024] offset=2132508672 byte_size=8388608 fnv1a64=4f6480b650b7ef49
+layers.24.k_proj shape=[1024, 1024] offset=2140897280 byte_size=4194304 fnv1a64=e567b38e9f60c61c
+layers.24.v_proj shape=[1024, 1024] offset=2145091584 byte_size=4194304 fnv1a64=589128018f0496cb
+layers.24.q_norm shape=[128] offset=2149285888 byte_size=512 fnv1a64=aa32eac6b4a29545
+layers.24.k_norm shape=[128] offset=2149286400 byte_size=512 fnv1a64=f578bda01c80aa1e
+layers.24.o_proj shape=[1024, 2048] offset=2149286912 byte_size=8388608 fnv1a64=d034e448cad2c7b8
+layers.24.post_attention_norm shape=[1024] offset=2157675520 byte_size=4096 fnv1a64=a82cbbd14cbd7717
+layers.24.gate_proj shape=[3072, 1024] offset=2157679616 byte_size=12582912 fnv1a64=b2511fd0aa170d48
+layers.24.up_proj shape=[3072, 1024] offset=2170262528 byte_size=12582912 fnv1a64=2806fe6e316119fe
+layers.24.down_proj shape=[1024, 3072] offset=2182845440 byte_size=12582912 fnv1a64=14b88d885484fe81
+layers.25.input_norm shape=[1024] offset=2195428352 byte_size=4096 fnv1a64=82f636fcf7acb0c7
+layers.25.q_proj shape=[2048, 1024] offset=2195432448 byte_size=8388608 fnv1a64=a1598df647bc2bbd
+layers.25.k_proj shape=[1024, 1024] offset=2203821056 byte_size=4194304 fnv1a64=57d8378d6eac423c
+layers.25.v_proj shape=[1024, 1024] offset=2208015360 byte_size=4194304 fnv1a64=e2885b05381c0800
+layers.25.q_norm shape=[128] offset=2212209664 byte_size=512 fnv1a64=13fe6a85250fe745
+layers.25.k_norm shape=[128] offset=2212210176 byte_size=512 fnv1a64=d1bc3965af01dbdd
+layers.25.o_proj shape=[1024, 2048] offset=2212210688 byte_size=8388608 fnv1a64=7a3249dddb6ff82d
+layers.25.post_attention_norm shape=[1024] offset=2220599296 byte_size=4096 fnv1a64=2d9560a47acf1176
+layers.25.gate_proj shape=[3072, 1024] offset=2220603392 byte_size=12582912 fnv1a64=1fb66048924c7800
+layers.25.up_proj shape=[3072, 1024] offset=2233186304 byte_size=12582912 fnv1a64=62b0306d0b283c52
+layers.25.down_proj shape=[1024, 3072] offset=2245769216 byte_size=12582912 fnv1a64=648f8fa2331e2185
+layers.26.input_norm shape=[1024] offset=2258352128 byte_size=4096 fnv1a64=fdc58f02cd05c523
+layers.26.q_proj shape=[2048, 1024] offset=2258356224 byte_size=8388608 fnv1a64=c6562aadf2ccdaee
+layers.26.k_proj shape=[1024, 1024] offset=2266744832 byte_size=4194304 fnv1a64=7cafdefa16dd4da8
+layers.26.v_proj shape=[1024, 1024] offset=2270939136 byte_size=4194304 fnv1a64=f83bab6d5294c929
+layers.26.q_norm shape=[128] offset=2275133440 byte_size=512 fnv1a64=52cce559e005b0ff
+layers.26.k_norm shape=[128] offset=2275133952 byte_size=512 fnv1a64=7594923decaab885
+layers.26.o_proj shape=[1024, 2048] offset=2275134464 byte_size=8388608 fnv1a64=7864d22b53c63466
+layers.26.post_attention_norm shape=[1024] offset=2283523072 byte_size=4096 fnv1a64=96505de02152fae6
+layers.26.gate_proj shape=[3072, 1024] offset=2283527168 byte_size=12582912 fnv1a64=1838181ac8984af6
+layers.26.up_proj shape=[3072, 1024] offset=2296110080 byte_size=12582912 fnv1a64=af255e62f15efa90
+layers.26.down_proj shape=[1024, 3072] offset=2308692992 byte_size=12582912 fnv1a64=d2efec7ec505acdd
+layers.27.input_norm shape=[1024] offset=2321275904 byte_size=4096 fnv1a64=57a6075449483bff
+layers.27.q_proj shape=[2048, 1024] offset=2321280000 byte_size=8388608 fnv1a64=c09ff918381c1fa5
+layers.27.k_proj shape=[1024, 1024] offset=2329668608 byte_size=4194304 fnv1a64=7986c6908b33c7e8
+layers.27.v_proj shape=[1024, 1024] offset=2333862912 byte_size=4194304 fnv1a64=b7ca70842dfef991
+layers.27.q_norm shape=[128] offset=2338057216 byte_size=512 fnv1a64=cf28984a75d5f242
+layers.27.k_norm shape=[128] offset=2338057728 byte_size=512 fnv1a64=c655002093f38595
+layers.27.o_proj shape=[1024, 2048] offset=2338058240 byte_size=8388608 fnv1a64=c4ee435f8d64faed
+layers.27.post_attention_norm shape=[1024] offset=2346446848 byte_size=4096 fnv1a64=40cf319f4b49d6a7
+layers.27.gate_proj shape=[3072, 1024] offset=2346450944 byte_size=12582912 fnv1a64=e3e5aaac914e4d10
+layers.27.up_proj shape=[3072, 1024] offset=2359033856 byte_size=12582912 fnv1a64=28c591d0d19c7d2b
+layers.27.down_proj shape=[1024, 3072] offset=2371616768 byte_size=12582912 fnv1a64=fe44caf180b77722

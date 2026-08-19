@@ -1,0 +1,57 @@
+{
+  "tokenizer_file": "/root/huggingface/Qwen3-0.6B/tokenizer.json",
+  "tokenizer_config_file": "/root/huggingface/Qwen3-0.6B/tokenizer_config.json",
+  "model_dir": "/root/huggingface/Qwen3-0.6B",
+  "eos_token": "<|im_end|>",
+  "eos_token_id": 151645,
+  "empty_input_ids": [],
+  "samples": [
+    {
+      "name": "ascii",
+      "text": "Hello CUDA LLM.",
+      "input_ids": [
+        9707,
+        54809,
+        444,
+        10994,
+        13
+      ],
+      "decoded": "Hello CUDA LLM."
+    },
+    {
+      "name": "chinese",
+      "text": "你好，世界！",
+      "input_ids": [
+        108386,
+        3837,
+        99489,
+        6313
+      ],
+      "decoded": "你好，世界！"
+    },
+    {
+      "name": "mixed",
+      "text": "Hello，世界!  CUDA\tLLM.",
+      "input_ids": [
+        9707,
+        3837,
+        99489,
+        0,
+        220,
+        54809,
+        93881,
+        44,
+        13
+      ],
+      "decoded": "Hello，世界!  CUDA\tLLM."
+    },
+    {
+      "name": "special_eos",
+      "text": "<|im_end|>",
+      "input_ids": [
+        151645
+      ],
+      "decoded": "<|im_end|>"
+    }
+  ]
+}

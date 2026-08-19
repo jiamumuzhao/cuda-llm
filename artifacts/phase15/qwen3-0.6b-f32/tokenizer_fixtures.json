@@ -1,0 +1,85 @@
+{
+  "model_id": "Qwen/Qwen3-0.6B",
+  "plain_text": "Explain why key-value caching improves autoregressive transformer decoding.",
+  "fixtures": [
+    {
+      "kind": "plain",
+      "rendered_prompt": "Explain why key-value caching improves autoregressive transformer decoding.",
+      "token_ids": [
+        840,
+        20772,
+        3170,
+        1376,
+        19083,
+        47430,
+        34950,
+        3078,
+        460,
+        46719,
+        42578,
+        47116,
+        13
+      ],
+      "bos_token_id": null,
+      "eos_token_id": 151645,
+      "special_token_ids": {
+        "eos": 151645,
+        "pad": 151643
+      }
+    },
+    {
+      "kind": "chat",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are a helpful assistant."
+        },
+        {
+          "role": "user",
+          "content": "Explain why key-value caching improves autoregressive transformer decoding."
+        }
+      ],
+      "rendered_prompt": "<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n<|im_start|>user\nExplain why key-value caching improves autoregressive transformer decoding.<|im_end|>\n<|im_start|>assistant\n",
+      "token_ids": [
+        151644,
+        8948,
+        198,
+        2610,
+        525,
+        264,
+        10950,
+        17847,
+        13,
+        151645,
+        198,
+        151644,
+        872,
+        198,
+        840,
+        20772,
+        3170,
+        1376,
+        19083,
+        47430,
+        34950,
+        3078,
+        460,
+        46719,
+        42578,
+        47116,
+        13,
+        151645,
+        198,
+        151644,
+        77091,
+        198
+      ],
+      "bos_token_id": null,
+      "eos_token_id": 151645,
+      "special_token_ids": {
+        "eos": 151645,
+        "pad": 151643
+      }
+    }
+  ]
+}

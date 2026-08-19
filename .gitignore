@@ -1,0 +1,52 @@
+# CMake and native build output
+/build/
+/cmake-build-*/
+/CMakeFiles/
+/CMakeCache.txt
+/cmake_install.cmake
+/compile_commands.json
+*.o
+*.obj
+*.a
+*.so
+*.dylib
+*.dll
+*.exe
+*.pdb
+*.d
+
+# CUDA compiler intermediates
+*.ptx
+*.cubin
+*.fatbin
+*.nvvm
+
+# Python tooling
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.venv/
+venv/
+
+# IDE and operating-system files
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Local diagnostics and benchmarks
+*.log
+*.prof
+*.nsys-rep
+*.qdrep
+
+# tokenizers-cpp Rust build output
+third_party/tokenizers-cpp/target/
+
+# Large locally exported/downloaded model weights. Keep small fixtures and
+# reference artifacts under artifacts/ tracked for correctness tests.
+artifacts/phase15/qwen3-0.6b-f32/weights.bin
+artifacts/phase15/qwen3-0.6b-f32/*.f32
