@@ -124,6 +124,10 @@ Tensor cuda_paged_gqa_attention_decode(
     const Tensor& q, const PagedKvCachePool& pool, std::size_t layer,
     const Tensor& device_block_table_i32, std::size_t kv_length,
     std::size_t num_q_heads, std::size_t num_kv_heads, std::size_t head_dim);
+Tensor cuda_paged_gqa_attention_decode(
+    const Tensor& q, const PagedKvCachePool& pool, std::size_t layer,
+    const Tensor& device_block_table_i32, std::size_t kv_length,
+    const AttentionConfig& config);
 
 // Correctness-first batched paged GQA decode. The public convenience wrapper
 // defensively validates device metadata; the caller-provided output path used
@@ -134,12 +138,22 @@ Tensor cuda_paged_gqa_attention_decode_batch(
     const Tensor& block_tables_bm_i32,
     const Tensor& positions_before_append_b_i32,
     std::size_t num_q_heads, std::size_t num_kv_heads, std::size_t head_dim);
+Tensor cuda_paged_gqa_attention_decode_batch(
+    const Tensor& q_bhd, const PagedKvCachePool& pool, std::size_t layer,
+    const Tensor& block_tables_bm_i32,
+    const Tensor& positions_before_append_b_i32,
+    const AttentionConfig& config);
 void cuda_paged_gqa_attention_decode_batch_out(
     const Tensor& q_bhd, const PagedKvCachePool& pool, std::size_t layer,
     const Tensor& block_tables_bm_i32,
     const Tensor& positions_before_append_b_i32,
     std::size_t num_q_heads, std::size_t num_kv_heads, std::size_t head_dim,
     Tensor& output_bhd);
+void cuda_paged_gqa_attention_decode_batch_out(
+    const Tensor& q_bhd, const PagedKvCachePool& pool, std::size_t layer,
+    const Tensor& block_tables_bm_i32,
+    const Tensor& positions_before_append_b_i32,
+    const AttentionConfig& config, Tensor& output_bhd);
 void reset_cuda_paged_gqa_attention_decode_batch_launch_count();
 std::uint64_t cuda_paged_gqa_attention_decode_batch_launch_count();
 }

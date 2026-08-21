@@ -191,7 +191,8 @@ Tensor qwen3_decoder_layer_cuda_decode_fp16_paged(
                         v_linear.reshape({8, 128}));
   Tensor attention = cuda_paged_gqa_attention_decode(
       q_rope.reshape({16, 128}), cache.pool(), layer_index,
-      device_block_table_i32, cache.length() + 1, 16, 8, 128)
+      device_block_table_i32, cache.length() + 1,
+      AttentionConfig{16, 8, 128, cache.pool().config().block_size, 512, true})
       .reshape({1, 2048});
   Tensor o_proj = cuda_linear(attention, w.o_proj);
   Tensor attention_residual = cuda_add(residual, o_proj);
@@ -282,7 +283,9 @@ Tensor qwen3_decoder_layer_cuda_decode_fp16_paged_batch(
   }
   cuda_paged_gqa_attention_decode_batch_out(
       q_rope, caches[0]->pool(), layer_index, block_tables_bm_i32,
-      positions_cuda, 16, 8, 128, attention_heads);
+      positions_cuda,
+      AttentionConfig{16, 8, 128, caches[0]->pool().config().block_size, 512, true},
+      attention_heads);
   Tensor attention = attention_heads.reshape({static_cast<int64_t>(batch), 2048});
   Tensor o_proj = cuda_linear(attention, w.o_proj);
   Tensor attention_residual = cuda_add(residual, o_proj);
@@ -359,7 +362,9 @@ void qwen3_decoder_layer_cuda_decode_fp16_paged_batch_into(
   Tensor attention = ws.attention.prefix_first_dim(batch).reshape({static_cast<int64_t>(batch),16,128});
   cuda_paged_gqa_attention_decode_batch_out(
       q, caches[0]->pool(), layer_index, block_tables_bm_i32,
-      positions_cuda, 16, 8, 128, attention);
+      positions_cuda,
+      AttentionConfig{16, 8, 128, caches[0]->pool().config().block_size, 512, true},
+      attention);
   Tensor attention_flat = attention.reshape({static_cast<int64_t>(batch), 2048});
   Tensor o_proj = ws.o_proj.prefix_first_dim(batch);
   Tensor attention_residual = ws.attention_residual.prefix_first_dim(batch);

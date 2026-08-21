@@ -284,6 +284,47 @@ void cuda_paged_gqa_attention_decode_batch_out(
   CUDA_KERNEL_CHECK();
 }
 
+Tensor cuda_paged_gqa_attention_decode(
+    const Tensor& q, const PagedKvCachePool& pool, std::size_t layer,
+    const Tensor& device_block_table_i32, std::size_t kv_length,
+    const AttentionConfig& config) {
+  if (!config.is_gqa() || config.head_dim == 0)
+    paged_error("AttentionConfig has invalid head configuration");
+  if (config.page_size != 0 && config.page_size != pool.config().block_size)
+    paged_error("AttentionConfig page_size does not match KV pool block size");
+  return cuda_paged_gqa_attention_decode(
+      q, pool, layer, device_block_table_i32, kv_length,
+      config.num_q_heads, config.num_kv_heads, config.head_dim);
+}
+
+void cuda_paged_gqa_attention_decode_batch_out(
+    const Tensor& q_bhd, const PagedKvCachePool& pool, std::size_t layer,
+    const Tensor& block_tables_bm_i32,
+    const Tensor& positions_before_append_b_i32,
+    const AttentionConfig& config, Tensor& output_bhd) {
+  if (!config.is_gqa() || config.head_dim == 0)
+    paged_error("AttentionConfig has invalid head configuration");
+  if (config.page_size != 0 && config.page_size != pool.config().block_size)
+    paged_error("AttentionConfig page_size does not match KV pool block size");
+  cuda_paged_gqa_attention_decode_batch_out(
+      q_bhd, pool, layer, block_tables_bm_i32, positions_before_append_b_i32,
+      config.num_q_heads, config.num_kv_heads, config.head_dim, output_bhd);
+}
+
+Tensor cuda_paged_gqa_attention_decode_batch(
+    const Tensor& q_bhd, const PagedKvCachePool& pool, std::size_t layer,
+    const Tensor& block_tables_bm_i32,
+    const Tensor& positions_before_append_b_i32,
+    const AttentionConfig& config) {
+  if (!config.is_gqa() || config.head_dim == 0)
+    paged_error("AttentionConfig has invalid head configuration");
+  if (config.page_size != 0 && config.page_size != pool.config().block_size)
+    paged_error("AttentionConfig page_size does not match KV pool block size");
+  return cuda_paged_gqa_attention_decode_batch(
+      q_bhd, pool, layer, block_tables_bm_i32, positions_before_append_b_i32,
+      config.num_q_heads, config.num_kv_heads, config.head_dim);
+}
+
 void reset_cuda_paged_gqa_attention_decode_batch_launch_count() {
   g_paged_batch_attention_launches.store(0, std::memory_order_relaxed);
 }
