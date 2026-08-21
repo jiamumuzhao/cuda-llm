@@ -146,8 +146,9 @@ Qwen3CudaModel::Qwen3CudaModel(const std::filesystem::path& package_root) {
 
   token_embedding_ = load_f16_cuda(package, "token_embedding", {151936, 1024});
   final_norm_ = load_f16_cuda(package, "final_norm", {1024});
-  layers_.reserve(28);
-  for (size_t i = 0; i < 28; ++i) layers_.push_back(load_layer(package, i));
+  layers_.reserve(model_spec_.num_layers);
+  for (size_t i = 0; i < model_spec_.num_layers; ++i)
+    layers_.push_back(load_layer(package, i));
 
   resident_weight_bytes_ = token_embedding_.nbytes() + final_norm_.nbytes();
   for (const auto& layer : layers_) {
