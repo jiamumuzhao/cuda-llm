@@ -140,7 +140,7 @@ int main(int argc, char** argv) {
     if (paged) {
       const size_t blocks = (max_seq_len + 15) / 16 + 8;
       PagedKvCachePool pool(
-          PagedKvCachePoolConfig{blocks, 28, 8, 16, 128, DType::F16});
+          make_paged_kv_cache_pool_config(model_object.model_spec(), blocks, 16, DType::F16));
       result = sampled && sampling.temperature != 0.0f
           ? model_object.generate_sampled_paged(
                 pool, ids, max_new_tokens, eos, max_seq_len, sampling)

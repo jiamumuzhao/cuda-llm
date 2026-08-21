@@ -1,6 +1,7 @@
 #pragma once
 
 #include "llm/paged_kv_block_manager.h"
+#include "llm/decoder_model_spec.h"
 #include "llm/tensor.h"
 
 #include <cstddef>
@@ -19,6 +20,18 @@ struct PagedKvCachePoolConfig {
   std::size_t head_dim = 0;
   DType dtype = DType::F16;
 };
+
+inline PagedKvCachePoolConfig make_paged_kv_cache_pool_config(
+    const DecoderModelSpec& spec, std::size_t total_blocks,
+    std::size_t block_size, DType dtype = DType::F16) {
+  return {
+      total_blocks,
+      spec.num_layers,
+      spec.attention.num_kv_heads,
+      block_size,
+      spec.attention.head_dim,
+      dtype};
+}
 
 // Owns one stable CUDA allocation and the CPU block metadata. This object is
 // CPU-metadata-thread-unsafe by design; it is not part of the inference path.
