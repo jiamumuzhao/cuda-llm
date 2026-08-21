@@ -1,6 +1,7 @@
 #pragma once
 
 #include "qwen3_layer_cuda.h"
+#include "decoder_model_spec.h"
 #include "qwen3_kv_cache.h"
 #include "qwen3_paged_kv_cache.h"
 #include "ops_cuda.h"
@@ -94,6 +95,7 @@ class Qwen3CudaModel {
       const SamplingConfig& sampling) const;
 
   size_t num_layers() const { return layers_.size(); }
+  const DecoderModelSpec& model_spec() const noexcept { return model_spec_; }
   size_t resident_weight_bytes() const { return resident_weight_bytes_; }
   size_t decode_workspace_bytes() const {
     return decode_workspace_ ? decode_workspace_->resident_bytes() : 0;
@@ -113,6 +115,7 @@ class Qwen3CudaModel {
   std::vector<Qwen3CudaLayerWeights> layers_;
   float rms_norm_eps_ = 0.0f;
   float rope_theta_ = 0.0f;
+  DecoderModelSpec model_spec_{};
   size_t resident_weight_bytes_ = 0;
   std::unique_ptr<DecodeWorkspace> decode_workspace_;
   mutable std::unique_ptr<PagedDecodeMetadataWorkspace>

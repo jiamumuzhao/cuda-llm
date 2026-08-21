@@ -135,6 +135,15 @@ Qwen3CudaModel::Qwen3CudaModel(const std::filesystem::path& package_root) {
     model_error("config tie_word_embeddings actual=" +
                 package.config("tie_word_embeddings") + " expected=true");
 
+  model_spec_.attention = AttentionConfig{16, 8, 128, 16, 512, true};
+  model_spec_.hidden_size = 1024;
+  model_spec_.intermediate_size = 3072;
+  model_spec_.vocab_size = 151936;
+  model_spec_.num_layers = 28;
+  model_spec_.rms_norm_eps = rms_norm_eps_;
+  model_spec_.rope_theta = rope_theta_;
+  model_spec_.tie_word_embeddings = true;
+
   token_embedding_ = load_f16_cuda(package, "token_embedding", {151936, 1024});
   final_norm_ = load_f16_cuda(package, "final_norm", {1024});
   layers_.reserve(28);
