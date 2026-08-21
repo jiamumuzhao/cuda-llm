@@ -55,20 +55,28 @@ Tensor load_f16_cuda(const ModelPackage& package, const std::string& name,
   return f32_to_f16_cpu(cpu, name).to(DeviceType::CUDA);
 }
 
-Qwen3CudaLayerWeights load_layer(const ModelPackage& package, size_t index) {
+Qwen3CudaLayerWeights load_layer(
+    const ModelPackage& package, size_t index, const DecoderModelSpec& spec) {
   const std::string prefix = "layers." + std::to_string(index) + ".";
+  const auto hidden = static_cast<int64_t>(spec.hidden_size);
+  const auto q_dim = static_cast<int64_t>(
+      spec.attention.num_q_heads * spec.attention.head_dim);
+  const auto kv_dim = static_cast<int64_t>(
+      spec.attention.num_kv_heads * spec.attention.head_dim);
+  const auto head_dim = static_cast<int64_t>(spec.attention.head_dim);
+  const auto intermediate = static_cast<int64_t>(spec.intermediate_size);
   return {
-      load_f16_cuda(package, prefix + "input_norm", {1024}),
-      load_f16_cuda(package, prefix + "q_proj", {2048, 1024}),
-      load_f16_cuda(package, prefix + "k_proj", {1024, 1024}),
-      load_f16_cuda(package, prefix + "v_proj", {1024, 1024}),
-      load_f16_cuda(package, prefix + "q_norm", {128}),
-      load_f16_cuda(package, prefix + "k_norm", {128}),
-      load_f16_cuda(package, prefix + "o_proj", {1024, 2048}),
-      load_f16_cuda(package, prefix + "post_attention_norm", {1024}),
-      load_f16_cuda(package, prefix + "gate_proj", {3072, 1024}),
-      load_f16_cuda(package, prefix + "up_proj", {3072, 1024}),
-      load_f16_cuda(package, prefix + "down_proj", {1024, 3072})};
+      load_f16_cuda(package, prefix + "input_norm", {hidden}),
+      load_f16_cuda(package, prefix + "q_proj", {q_dim, hidden}),
+      load_f16_cuda(package, prefix + "k_proj", {kv_dim, hidden}),
+      load_f16_cuda(package, prefix + "v_proj", {kv_dim, hidden}),
+      load_f16_cuda(package, prefix + "q_norm", {head_dim}),
+      load_f16_cuda(package, prefix + "k_norm", {head_dim}),
+      load_f16_cuda(package, prefix + "o_proj", {hidden, q_dim}),
+      load_f16_cuda(package, prefix + "post_attention_norm", {hidden}),
+      load_f16_cuda(package, prefix + "gate_proj", {intermediate, hidden}),
+      load_f16_cuda(package, prefix + "up_proj", {intermediate, hidden}),
+      load_f16_cuda(package, prefix + "down_proj", {hidden, intermediate})};
 }
 
 void validate_runtime_inputs(const std::vector<int32_t>& token_ids,
@@ -144,11 +152,15 @@ Qwen3CudaModel::Qwen3CudaModel(const std::filesystem::path& package_root) {
   model_spec_.rope_theta = rope_theta_;
   model_spec_.tie_word_embeddings = true;
 
-  token_embedding_ = load_f16_cuda(package, "token_embedding", {151936, 1024});
-  final_norm_ = load_f16_cuda(package, "final_norm", {1024});
+  token_embedding_ = load_f16_cuda(
+      package, "token_embedding",
+      {static_cast<int64_t>(model_spec_.vocab_size),
+       static_cast<int64_t>(model_spec_.hidden_size)});
+  final_norm_ = load_f16_cuda(
+      package, "final_norm", {static_cast<int64_t>(model_spec_.hidden_size)});
   layers_.reserve(model_spec_.num_layers);
   for (size_t i = 0; i < model_spec_.num_layers; ++i)
-    layers_.push_back(load_layer(package, i));
+    layers_.push_back(load_layer(package, i, model_spec_));
 
   resident_weight_bytes_ = token_embedding_.nbytes() + final_norm_.nbytes();
   for (const auto& layer : layers_) {
