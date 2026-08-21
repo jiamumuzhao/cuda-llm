@@ -39,32 +39,7 @@ __global__ void paged_gqa_decode_kernel(
   const std::size_t plane_elements = block_size * token_stride;
   const float query = __half2float(q[q_head * head_dim + dim]);
 
-  float maximum = -CUDART_INF_F;
-  for (std::size_t token = 0; token < kv_length; ++token) {
-    const std::size_t block = static_cast<std::size_t>(block_table[token / block_size]);
-    const std::size_t offset = token % block_size;
-    const std::size_t layer_block = (layer * total_blocks + block) * 2;
-    const __half* key = storage + layer_block * plane_elements +
-                        offset * token_stride + kv_head * head_dim;
-    float partial = 0.0f;
-    for (std::size_t e = dim; e < head_dim; e += blockDim.x)
-      partial += __half2float(q[q_head * head_dim + e]) * __half2float(key[e]);
-    for (int offset = 16; offset > 0; offset >>= 1)
-      partial += __shfl_down_sync(0xffffffff, partial, offset);
-    const std::size_t warp = dim / 32;
-    const int lane = static_cast<int>(dim % 32);
-    if (lane == 0) score_workspace[warp] = partial;
-    __syncthreads();
-    if (dim == 0) {
-      float total = score_workspace[0];
-      for (std::size_t w = 1; w < (head_dim + 31) / 32; ++w)
-        total += score_workspace[w];
-      score_workspace[0] = total;
-    }
-    __syncthreads();
-    maximum = fmaxf(maximum, score_workspace[0] * scale);
-  }
-
+  float running_max = -CUDART_INF_F;
   float denominator = 0.0f;
   float result = 0.0f;
   for (std::size_t token = 0; token < kv_length; ++token) {
@@ -88,12 +63,17 @@ __global__ void paged_gqa_decode_kernel(
       float total = score_workspace[0];
       for (std::size_t w = 1; w < (head_dim + 31) / 32; ++w)
         total += score_workspace[w];
-      score_workspace[0] = total;
+      score_workspace[0] = total * scale;
     }
     __syncthreads();
-    const float probability = expf(score_workspace[0] * scale - maximum);
-    denominator += probability;
-    result += probability * __half2float(value[dim]);
+
+    const float score = score_workspace[0];
+    const float next_max = fmaxf(running_max, score);
+    const float old_scale = expf(running_max - next_max);
+    const float weight = expf(score - next_max);
+    denominator = denominator * old_scale + weight;
+    result = result * old_scale + weight * __half2float(value[dim]);
+    running_max = next_max;
   }
   output[q_head * head_dim + dim] = __float2half(result / denominator);
 }
@@ -122,32 +102,7 @@ __global__ void paged_gqa_decode_batch_kernel(
   const int32_t* table = block_tables + row * max_blocks;
   const std::size_t kv_length = static_cast<std::size_t>(positions[row]) + 1;
 
-  float maximum = -CUDART_INF_F;
-  for (std::size_t token = 0; token < kv_length; ++token) {
-    const std::size_t block = static_cast<std::size_t>(table[token / block_size]);
-    const std::size_t offset = token % block_size;
-    const std::size_t layer_block = (layer * total_blocks + block) * 2;
-    const __half* key = storage + layer_block * plane_elements +
-                        offset * token_stride + kv_head * head_dim;
-    float partial = 0.0f;
-    for (std::size_t e = dim; e < head_dim; e += blockDim.x)
-      partial += __half2float(q_row[q_head * head_dim + e]) * __half2float(key[e]);
-    for (int offset = 16; offset > 0; offset >>= 1)
-      partial += __shfl_down_sync(0xffffffff, partial, offset);
-    const std::size_t warp = dim / 32;
-    const int lane = static_cast<int>(dim % 32);
-    if (lane == 0) score_workspace[warp] = partial;
-    __syncthreads();
-    if (dim == 0) {
-      float total = score_workspace[0];
-      for (std::size_t w = 1; w < (head_dim + 31) / 32; ++w)
-        total += score_workspace[w];
-      score_workspace[0] = total;
-    }
-    __syncthreads();
-    maximum = fmaxf(maximum, score_workspace[0] * scale);
-  }
-
+  float running_max = -CUDART_INF_F;
   float denominator = 0.0f;
   float result = 0.0f;
   for (std::size_t token = 0; token < kv_length; ++token) {
@@ -171,12 +126,17 @@ __global__ void paged_gqa_decode_batch_kernel(
       float total = score_workspace[0];
       for (std::size_t w = 1; w < (head_dim + 31) / 32; ++w)
         total += score_workspace[w];
-      score_workspace[0] = total;
+      score_workspace[0] = total * scale;
     }
     __syncthreads();
-    const float probability = expf(score_workspace[0] * scale - maximum);
-    denominator += probability;
-    result += probability * __half2float(value[dim]);
+
+    const float score = score_workspace[0];
+    const float next_max = fmaxf(running_max, score);
+    const float old_scale = expf(running_max - next_max);
+    const float weight = expf(score - next_max);
+    denominator = denominator * old_scale + weight;
+    result = result * old_scale + weight * __half2float(value[dim]);
+    running_max = next_max;
   }
   out_row[q_head * head_dim + dim] = __float2half(result / denominator);
 }
