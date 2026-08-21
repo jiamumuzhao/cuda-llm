@@ -126,6 +126,31 @@ PagedDecodeMetadataUploadStats metadata_upload_delta(
 
 }  // namespace
 
+DecodeWorkspace::DecodeWorkspace(const DecoderModelSpec& spec)
+    : hidden_a(DType::F16, {4, static_cast<int64_t>(spec.hidden_size)}, DeviceType::CUDA),
+      hidden_b(DType::F16, {4, static_cast<int64_t>(spec.hidden_size)}, DeviceType::CUDA),
+      input_norm(DType::F16, {4, static_cast<int64_t>(spec.hidden_size)}, DeviceType::CUDA),
+      q_linear(DType::F16, {4, static_cast<int64_t>(spec.attention.num_q_heads * spec.attention.head_dim)}, DeviceType::CUDA),
+      k_linear(DType::F16, {4, static_cast<int64_t>(spec.attention.num_kv_heads * spec.attention.head_dim)}, DeviceType::CUDA),
+      v_linear(DType::F16, {4, static_cast<int64_t>(spec.attention.num_kv_heads * spec.attention.head_dim)}, DeviceType::CUDA),
+      attention(DType::F16, {4, static_cast<int64_t>(spec.attention.num_q_heads * spec.attention.head_dim)}, DeviceType::CUDA),
+      o_proj(DType::F16, {4, static_cast<int64_t>(spec.hidden_size)}, DeviceType::CUDA),
+      attention_residual(DType::F16, {4, static_cast<int64_t>(spec.hidden_size)}, DeviceType::CUDA),
+      post_attention_norm(DType::F16, {4, static_cast<int64_t>(spec.hidden_size)}, DeviceType::CUDA),
+      gate(DType::F16, {4, static_cast<int64_t>(spec.intermediate_size)}, DeviceType::CUDA),
+      up(DType::F16, {4, static_cast<int64_t>(spec.intermediate_size)}, DeviceType::CUDA),
+      down(DType::F16, {4, static_cast<int64_t>(spec.hidden_size)}, DeviceType::CUDA),
+      final_norm(DType::F16, {4, static_cast<int64_t>(spec.hidden_size)}, DeviceType::CUDA),
+      position_ids(DType::F32, {1}, DeviceType::CUDA),
+      variable_position_ids(DType::I32, {4}, DeviceType::CUDA),
+      variable_lengths(DType::I32, {4}, DeviceType::CUDA),
+      token_ids(DType::F32, {4}, DeviceType::CUDA) {}
+
+DecodeWorkspace::DecodeWorkspace()
+    : DecodeWorkspace(DecoderModelSpec{
+          AttentionConfig{16, 8, 128, 16, 512, true},
+          1024, 3072, 151936, 28, 0.0f, 0.0f, true}) {}
+
 Qwen3CudaModel::Qwen3CudaModel(const std::filesystem::path& package_root) {
   ModelPackage package(package_root);
   if (package.config("export_dtype") != "f32")
@@ -174,7 +199,7 @@ Qwen3CudaModel::Qwen3CudaModel(const std::filesystem::path& package_root) {
   }
   // DecodeWorkspace is resident before any benchmark or steady-state decode
   // measurement; the model remains single-threaded for decode calls.
-  decode_workspace_ = std::make_unique<DecodeWorkspace>();
+  decode_workspace_ = std::make_unique<DecodeWorkspace>(model_spec_);
 }
 
 Tensor Qwen3CudaModel::prefill_hidden_layers(

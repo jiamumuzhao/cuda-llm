@@ -1,6 +1,7 @@
 #pragma once
 
 #include "tensor.h"
+#include "decoder_model_spec.h"
 
 #include <cstddef>
 #include <stdexcept>
@@ -61,20 +62,24 @@ class PagedDecodeMetadataWorkspace {
 // single-threaded for that model; callers must not overlap decode calls.
 struct DecodeWorkspace {
   static constexpr size_t kMaxBatch = 4;
-  Tensor hidden_a{DType::F16, {4, 1024}, DeviceType::CUDA};
-  Tensor hidden_b{DType::F16, {4, 1024}, DeviceType::CUDA};
-  Tensor input_norm{DType::F16, {4, 1024}, DeviceType::CUDA};
-  Tensor q_linear{DType::F16, {4, 2048}, DeviceType::CUDA};
-  Tensor k_linear{DType::F16, {4, 1024}, DeviceType::CUDA};
-  Tensor v_linear{DType::F16, {4, 1024}, DeviceType::CUDA};
-  Tensor attention{DType::F16, {4, 2048}, DeviceType::CUDA};
-  Tensor o_proj{DType::F16, {4, 1024}, DeviceType::CUDA};
-  Tensor attention_residual{DType::F16, {4, 1024}, DeviceType::CUDA};
-  Tensor post_attention_norm{DType::F16, {4, 1024}, DeviceType::CUDA};
-  Tensor gate{DType::F16, {4, 3072}, DeviceType::CUDA};
-  Tensor up{DType::F16, {4, 3072}, DeviceType::CUDA};
-  Tensor down{DType::F16, {4, 1024}, DeviceType::CUDA};
-  Tensor final_norm{DType::F16, {4, 1024}, DeviceType::CUDA};
+
+  explicit DecodeWorkspace(const DecoderModelSpec& spec);
+  DecodeWorkspace();
+
+  Tensor hidden_a;
+  Tensor hidden_b;
+  Tensor input_norm;
+  Tensor q_linear;
+  Tensor k_linear;
+  Tensor v_linear;
+  Tensor attention;
+  Tensor o_proj;
+  Tensor attention_residual;
+  Tensor post_attention_norm;
+  Tensor gate;
+  Tensor up;
+  Tensor down;
+  Tensor final_norm;
   // F32 storage is used only as a four-byte RAII device buffer; kernels
   // interpret it as int32 position/token metadata.
   Tensor position_ids{DType::F32, {1}, DeviceType::CUDA};
