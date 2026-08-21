@@ -31,6 +31,7 @@ __global__ void paged_gqa_decode_kernel(
   const std::size_t q_head = blockIdx.x;
   const std::size_t dim = threadIdx.x;
   if (q_head >= q_heads || dim >= head_dim) return;
+  __shared__ float score_workspace[32];
 
   const std::size_t group = q_heads / kv_heads;
   const std::size_t kv_head = q_head / group;
@@ -45,10 +46,23 @@ __global__ void paged_gqa_decode_kernel(
     const std::size_t layer_block = (layer * total_blocks + block) * 2;
     const __half* key = storage + layer_block * plane_elements +
                         offset * token_stride + kv_head * head_dim;
-    float score = 0.0f;
-    for (std::size_t e = 0; e < head_dim; ++e)
-      score += __half2float(q[q_head * head_dim + e]) * __half2float(key[e]);
-    maximum = fmaxf(maximum, score * scale);
+    float partial = 0.0f;
+    for (std::size_t e = dim; e < head_dim; e += blockDim.x)
+      partial += __half2float(q[q_head * head_dim + e]) * __half2float(key[e]);
+    for (int offset = 16; offset > 0; offset >>= 1)
+      partial += __shfl_down_sync(0xffffffff, partial, offset);
+    const std::size_t warp = dim / 32;
+    const int lane = static_cast<int>(dim % 32);
+    if (lane == 0) score_workspace[warp] = partial;
+    __syncthreads();
+    if (dim == 0) {
+      float total = score_workspace[0];
+      for (std::size_t w = 1; w < (head_dim + 31) / 32; ++w)
+        total += score_workspace[w];
+      score_workspace[0] = total;
+    }
+    __syncthreads();
+    maximum = fmaxf(maximum, score_workspace[0] * scale);
   }
 
   float denominator = 0.0f;
@@ -61,10 +75,23 @@ __global__ void paged_gqa_decode_kernel(
                         offset * token_stride + kv_head * head_dim;
     const __half* value = storage + (layer_block + 1) * plane_elements +
                           offset * token_stride + kv_head * head_dim;
-    float score = 0.0f;
-    for (std::size_t e = 0; e < head_dim; ++e)
-      score += __half2float(q[q_head * head_dim + e]) * __half2float(key[e]);
-    const float probability = expf(score * scale - maximum);
+    float partial = 0.0f;
+    for (std::size_t e = dim; e < head_dim; e += blockDim.x)
+      partial += __half2float(q[q_head * head_dim + e]) * __half2float(key[e]);
+    for (int offset = 16; offset > 0; offset >>= 1)
+      partial += __shfl_down_sync(0xffffffff, partial, offset);
+    const std::size_t warp = dim / 32;
+    const int lane = static_cast<int>(dim % 32);
+    if (lane == 0) score_workspace[warp] = partial;
+    __syncthreads();
+    if (dim == 0) {
+      float total = score_workspace[0];
+      for (std::size_t w = 1; w < (head_dim + 31) / 32; ++w)
+        total += score_workspace[w];
+      score_workspace[0] = total;
+    }
+    __syncthreads();
+    const float probability = expf(score_workspace[0] * scale - maximum);
     denominator += probability;
     result += probability * __half2float(value[dim]);
   }
@@ -82,6 +109,7 @@ __global__ void paged_gqa_decode_batch_kernel(
   const std::size_t q_head = q_index % q_heads;
   const std::size_t dim = threadIdx.x;
   if (dim >= head_dim) return;
+  __shared__ float score_workspace[32];
 
   const std::size_t group = q_heads / kv_heads;
   const std::size_t kv_head = q_head / group;
@@ -101,10 +129,23 @@ __global__ void paged_gqa_decode_batch_kernel(
     const std::size_t layer_block = (layer * total_blocks + block) * 2;
     const __half* key = storage + layer_block * plane_elements +
                         offset * token_stride + kv_head * head_dim;
-    float score = 0.0f;
-    for (std::size_t e = 0; e < head_dim; ++e)
-      score += __half2float(q_row[q_head * head_dim + e]) * __half2float(key[e]);
-    maximum = fmaxf(maximum, score * scale);
+    float partial = 0.0f;
+    for (std::size_t e = dim; e < head_dim; e += blockDim.x)
+      partial += __half2float(q_row[q_head * head_dim + e]) * __half2float(key[e]);
+    for (int offset = 16; offset > 0; offset >>= 1)
+      partial += __shfl_down_sync(0xffffffff, partial, offset);
+    const std::size_t warp = dim / 32;
+    const int lane = static_cast<int>(dim % 32);
+    if (lane == 0) score_workspace[warp] = partial;
+    __syncthreads();
+    if (dim == 0) {
+      float total = score_workspace[0];
+      for (std::size_t w = 1; w < (head_dim + 31) / 32; ++w)
+        total += score_workspace[w];
+      score_workspace[0] = total;
+    }
+    __syncthreads();
+    maximum = fmaxf(maximum, score_workspace[0] * scale);
   }
 
   float denominator = 0.0f;
@@ -117,10 +158,23 @@ __global__ void paged_gqa_decode_batch_kernel(
                         offset * token_stride + kv_head * head_dim;
     const __half* value = storage + (layer_block + 1) * plane_elements +
                           offset * token_stride + kv_head * head_dim;
-    float score = 0.0f;
-    for (std::size_t e = 0; e < head_dim; ++e)
-      score += __half2float(q_row[q_head * head_dim + e]) * __half2float(key[e]);
-    const float probability = expf(score * scale - maximum);
+    float partial = 0.0f;
+    for (std::size_t e = dim; e < head_dim; e += blockDim.x)
+      partial += __half2float(q_row[q_head * head_dim + e]) * __half2float(key[e]);
+    for (int offset = 16; offset > 0; offset >>= 1)
+      partial += __shfl_down_sync(0xffffffff, partial, offset);
+    const std::size_t warp = dim / 32;
+    const int lane = static_cast<int>(dim % 32);
+    if (lane == 0) score_workspace[warp] = partial;
+    __syncthreads();
+    if (dim == 0) {
+      float total = score_workspace[0];
+      for (std::size_t w = 1; w < (head_dim + 31) / 32; ++w)
+        total += score_workspace[w];
+      score_workspace[0] = total;
+    }
+    __syncthreads();
+    const float probability = expf(score_workspace[0] * scale - maximum);
     denominator += probability;
     result += probability * __half2float(value[dim]);
   }
