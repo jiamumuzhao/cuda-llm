@@ -1,6 +1,7 @@
 #include "llm/qwen3_cuda_model.h"
 
 #include <charconv>
+#include <chrono>
 #include <cerrno>
 #include <cmath>
 #include <cstdlib>
@@ -17,7 +18,7 @@ using namespace llm;
 static void usage() {
   std::cout << "usage: cuda_llm_generate --model <package_dir> --ids <id,id,...> "
                "--max-new-tokens <N> --max-seq-len <N> [--eos-id <id>] "
-               "[--temperature <float>] [--top-k <int>] [--top-p <float>] [--seed <uint64>]\n";
+               "[--temperature <float>] [--top-k <int>] [--top-p <float>] [--seed <uint64>] [--paged]\n";
 }
 
 static int64_t parse_integer(const std::string& text, const std::string& name) {
@@ -71,12 +72,18 @@ int main(int argc, char** argv) {
     size_t max_new_tokens = 0, max_seq_len = 0;
     bool have_model = false, have_ids = false, have_new = false, have_seq = false;
     bool have_temp = false, have_top_k = false, have_top_p = false, have_seed = false;
+    bool paged = false;
     std::optional<int32_t> eos;
     SamplingConfig sampling;
     bool sampled = false;
     for (int i = 1; i < argc; ++i) {
       const std::string option = argv[i];
       if (option == "--help") { usage(); return 0; }
+      if (option == "--paged") {
+        if (paged) throw std::invalid_argument("duplicate --paged");
+        paged = true;
+        continue;
+      }
       if (i + 1 >= argc || std::string(argv[i + 1]).rfind("--", 0) == 0)
         throw std::invalid_argument("missing value for " + option);
       const std::string value = argv[++i];
@@ -126,9 +133,27 @@ int main(int argc, char** argv) {
         !std::isfinite(sampling.top_p)) throw std::invalid_argument("--top-p must be finite in (0,1]");
     if (max_seq_len < ids.size()) throw std::invalid_argument("--max-seq-len is smaller than prompt length");
     Qwen3CudaModel model_object(model);
-    GreedyGenerationResult result = sampled && sampling.temperature != 0.0f
-        ? model_object.generate_sampled(ids, max_new_tokens, eos, max_seq_len, sampling)
-        : model_object.generate_greedy(ids, max_new_tokens, eos, max_seq_len);
+    if (paged && max_seq_len > 512)
+      throw std::invalid_argument("--paged supports --max-seq-len <= 512");
+    const auto started = std::chrono::steady_clock::now();
+    GreedyGenerationResult result;
+    if (paged) {
+      const size_t blocks = (max_seq_len + 15) / 16 + 8;
+      PagedKvCachePool pool(
+          PagedKvCachePoolConfig{blocks, 28, 8, 16, 128, DType::F16});
+      result = sampled && sampling.temperature != 0.0f
+          ? model_object.generate_sampled_paged(
+                pool, ids, max_new_tokens, eos, max_seq_len, sampling)
+          : model_object.generate_greedy_paged(
+                pool, ids, max_new_tokens, eos, max_seq_len);
+    } else {
+      result = sampled && sampling.temperature != 0.0f
+          ? model_object.generate_sampled(ids, max_new_tokens, eos, max_seq_len, sampling)
+          : model_object.generate_greedy(ids, max_new_tokens, eos, max_seq_len);
+    }
+    const double elapsed_ms =
+        std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - started).count();
     auto print_ids = [](const std::vector<int32_t>& values) {
       std::cout << "[";
       for (size_t i = 0; i < values.size(); ++i) { if (i) std::cout << ","; std::cout << values[i]; }

@@ -18,7 +18,7 @@ class PagedDecodeMetadataWorkspace {
 
  public:
   static constexpr std::size_t kMaxBatch = 4;
-  static constexpr std::size_t kMaxSequence = 32;
+  static constexpr std::size_t kMaxSequence = 512;
 
   explicit PagedDecodeMetadataWorkspace(std::size_t block_size)
       : block_size_(block_size),

@@ -689,5 +689,61 @@ void qwen3_decoder_layer_cuda_decode_fp16_batch_variable_into(
   cuda_add_out(attention_residual, down, output);
 }
 
-
+Qwen3PackedLayerTrace qwen3_decoder_layer_cuda_trace_fp16_packed(
+    const Tensor& hidden_th, const Tensor& positions_cuda,
+    const Tensor& offsets_cuda, const Qwen3CudaLayerWeights& w,
+    float eps, float theta) {
+  const char* function = "qwen3_decoder_layer_cuda_trace_fp16_packed";
+  if (hidden_th.device() != DeviceType::CUDA || hidden_th.dtype() != DType::F16 ||
+      hidden_th.shape().size() != 2 || hidden_th.shape()[1] != 1024)
+    invalid(function, "hidden_th must be CUDA/F16 [T,1024]");
+  const int64_t tokens = hidden_th.shape()[0];
+  if (tokens < 1 || tokens > 512)
+    invalid(function, "total packed token count must be in [1,512]");
+  if (positions_cuda.device() != DeviceType::CUDA ||
+      positions_cuda.dtype() != DType::I32 || !positions_cuda.is_contiguous() ||
+      positions_cuda.shape() != std::vector<int64_t>{tokens})
+    invalid(function, "positions must be CUDA/I32/contiguous [T]");
+  if (offsets_cuda.device() != DeviceType::CUDA ||
+      offsets_cuda.dtype() != DType::I32 || !offsets_cuda.is_contiguous())
+    invalid(function, "offsets must be CUDA/I32/contiguous [B+1]");
+  require_tensor(w.input_norm, {1024}, "input_norm", DType::F16, function);
+  require_tensor(w.q_proj, {2048,1024}, "q_proj", DType::F16, function);
+  require_tensor(w.k_proj, {1024,1024}, "k_proj", DType::F16, function);
+  require_tensor(w.v_proj, {1024,1024}, "v_proj", DType::F16, function);
+  require_tensor(w.q_norm, {128}, "q_norm", DType::F16, function);
+  require_tensor(w.k_norm, {128}, "k_norm", DType::F16, function);
+  require_tensor(w.o_proj, {1024,2048}, "o_proj", DType::F16, function);
+  require_tensor(w.post_attention_norm, {1024}, "post_attention_norm", DType::F16, function);
+  require_tensor(w.gate_proj, {3072,1024}, "gate_proj", DType::F16, function);
+  require_tensor(w.up_proj, {3072,1024}, "up_proj", DType::F16, function);
+  require_tensor(w.down_proj, {1024,3072}, "down_proj", DType::F16, function);
+  if (!(eps > 0.0f) || !(theta > 0.0f))
+    invalid(function, "epsilon and theta must be > 0");
+  Tensor residual = hidden_th;
+  Tensor norm = cuda_rms_norm(hidden_th, w.input_norm, eps);
+  Tensor q = cuda_linear(norm, w.q_proj).reshape({tokens,16,128});
+  Tensor k = cuda_linear(norm, w.k_proj).reshape({tokens,8,128});
+  Tensor v = cuda_linear(norm, w.v_proj).reshape({tokens,8,128});
+  q = cuda_rms_norm(q, w.q_norm, eps);
+  k = cuda_rms_norm(k, w.k_norm, eps);
+  Tensor q_rope(DType::F16, q.shape(), DeviceType::CUDA);
+  Tensor k_rope(DType::F16, k.shape(), DeviceType::CUDA);
+  cuda_rope_token_positions_out(q, positions_cuda, theta, q_rope);
+  cuda_rope_token_positions_out(k, positions_cuda, theta, k_rope);
+  Tensor attention = cuda_gqa_attention_packed(q_rope, k_rope, v, offsets_cuda)
+      .reshape({tokens,2048});
+  Tensor o_proj = cuda_linear(attention, w.o_proj);
+  Tensor attention_residual = cuda_add(residual, o_proj);
+  Tensor post_norm = cuda_rms_norm(attention_residual, w.post_attention_norm, eps);
+  Tensor gate = cuda_linear(post_norm, w.gate_proj);
+  Tensor up = cuda_linear(post_norm, w.up_proj);
+  Tensor swiglu = cuda_swiglu(gate, up);
+  Tensor down = cuda_linear(swiglu, w.down_proj);
+  Qwen3PackedLayerTrace result;
+  result.k_rope = std::move(k_rope);
+  result.v_linear = std::move(v);
+  result.layer_output = cuda_add(attention_residual, down);
+  return result;
+}
 }

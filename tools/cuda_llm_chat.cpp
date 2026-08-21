@@ -3,6 +3,7 @@
 #include "llm/qwen3_tokenizer.h"
 
 #include <charconv>
+#include <chrono>
 #include <climits>
 #include <cerrno>
 #include <cmath>
@@ -17,7 +18,7 @@
 using namespace llm;
 
 namespace {
-struct Args { std::string model, tokenizer, prompt, messages_file; size_t max_new = 0, max_seq = 0; std::optional<int32_t> eos; SamplingConfig sampling; bool sampled=false; };
+struct Args { std::string model, tokenizer, prompt, messages_file; size_t max_new = 0, max_seq = 0; std::optional<int32_t> eos; SamplingConfig sampling; bool sampled=false; bool paged=false; };
 [[noreturn]] void usage_error(const std::string& s) { throw std::invalid_argument("cuda_llm_chat: " + s); }
 int64_t integer(const std::string& s, const char* name) {
   if (s.empty() || s[0] == '-') usage_error(std::string(name) + " must be a non-negative integer");
@@ -45,7 +46,7 @@ Args parse(int argc, char** argv) {
   if (argc == 2 && std::string(argv[1]) == "--help") {
     std::cout << "usage: cuda_llm_chat --model <package_dir> --tokenizer <tokenizer.json> "
                  "(--prompt <UTF-8 text> | --messages-file <messages.json>) "
-                 "--max-new-tokens <N> --max-seq-len <N> [--eos-id <id>] [--temperature <float>] [--top-k <int>] [--top-p <float>] [--seed <uint64>]\n";
+                 "--max-new-tokens <N> --max-seq-len <N> [--eos-id <id>] [--temperature <float>] [--top-k <int>] [--top-p <float>] [--seed <uint64>] [--paged]\n";
     std::exit(0);
   }
   Args a; bool model=false, tokenizer=false, prompt=false, messages_file=false, max_new=false, max_seq=false, eos=false, temperature=false, top_k=false, top_p=false, seed=false;
@@ -62,6 +63,7 @@ Args parse(int argc, char** argv) {
     else if (key == "--top-k") { if (top_k) usage_error("duplicate --top-k"); auto n=integer(value(i,argc,argv,"--top-k"),"--top-k"); if(n>INT32_MAX) usage_error("--top-k exceeds int32_t"); a.sampling.top_k=static_cast<int32_t>(n); top_k=a.sampled=true; }
     else if (key == "--top-p") { if (top_p) usage_error("duplicate --top-p"); a.sampling.top_p=real(value(i,argc,argv,"--top-p"),"--top-p"); top_p=a.sampled=true; }
     else if (key == "--seed") { if (seed) usage_error("duplicate --seed"); a.sampling.seed=u64(value(i,argc,argv,"--seed"),"--seed"); seed=a.sampled=true; }
+    else if (key == "--paged") { if (a.paged) usage_error("duplicate --paged"); a.paged=true; }
     else usage_error("unknown argument " + key);
   }
   if (!model || !tokenizer || (!prompt && !messages_file) || (prompt && messages_file) || !max_new || !max_seq)
@@ -91,14 +93,33 @@ int main(int argc, char** argv) {
       throw std::invalid_argument("cuda_llm_chat: --eos-id outside tokenizer vocabulary [0," + std::to_string(tokenizer.vocab_size()) + ")");
     const auto eos = a.eos.has_value() ? a.eos : tokenizer.eos_token_id();
     Qwen3CudaModel model(a.model);
-    const auto result = a.sampled && a.sampling.temperature != 0.0f
-        ? model.generate_sampled(prompt_ids, a.max_new, eos, a.max_seq, a.sampling)
-        : model.generate_greedy(prompt_ids, a.max_new, eos, a.max_seq);
+    if (a.paged && a.max_seq > 512)
+      usage_error("--paged supports --max-seq-len <= 512");
+    const auto started = std::chrono::steady_clock::now();
+    GreedyGenerationResult result;
+    if (a.paged) {
+      const size_t blocks = (a.max_seq + 15) / 16 + 8;
+      PagedKvCachePool pool(
+          PagedKvCachePoolConfig{blocks, 28, 8, 16, 128, DType::F16});
+      result = a.sampled && a.sampling.temperature != 0.0f
+          ? model.generate_sampled_paged(
+                pool, prompt_ids, a.max_new, eos, a.max_seq, a.sampling)
+          : model.generate_greedy_paged(
+                pool, prompt_ids, a.max_new, eos, a.max_seq);
+    } else {
+      result = a.sampled && a.sampling.temperature != 0.0f
+          ? model.generate_sampled(prompt_ids, a.max_new, eos, a.max_seq, a.sampling)
+          : model.generate_greedy(prompt_ids, a.max_new, eos, a.max_seq);
+    }
+    const double elapsed_ms =
+        std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - started).count();
     print_ids("prompt_ids", prompt_ids);
     print_ids("generated_ids", result.generated_ids);
     std::cout << "generated_text=" << tokenizer.decode(result.generated_ids) << "\n";
     std::cout << "stop_reason=" << result.stop_reason << "\n";
     std::cout << "final_cache_length=" << result.final_cache_length << "\n";
+    std::cout << "elapsed_ms=" << elapsed_ms << " generated_tokens_per_sec=" << (result.generated_ids.empty() ? 0.0 : (1000.0 * result.generated_ids.size() / elapsed_ms)) << "\n";
     return 0;
   } catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }
 }

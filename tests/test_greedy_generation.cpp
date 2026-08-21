@@ -60,6 +60,33 @@ int main() {
     auto repeat = model.generate_greedy(prompt, 3, std::nullopt, 16);
     if (repeat.generated_ids != generated.generated_ids) fail("generation is not repeatable");
 
+    PagedKvCachePoolConfig paged_config{32, 28, 8, 16, 128, DType::F16};
+    PagedKvCachePool paged_pool(paged_config);
+    auto paged_generated =
+        model.generate_greedy_paged(paged_pool, prompt, 3, std::nullopt, 16);
+    print_ids("paged_generated_ids", paged_generated.generated_ids);
+    std::cout << " stop_reason=" << paged_generated.stop_reason
+              << " final_cache_length=" << paged_generated.final_cache_length << "\n";
+    if (paged_generated.generated_ids != manual ||
+        paged_generated.stop_reason != "max_new_tokens" ||
+        paged_generated.final_cache_length != 6 ||
+        paged_pool.used_block_count() != 0)
+      fail("generate_greedy_paged differs from contiguous baseline or leaked blocks");
+
+    const std::vector<int32_t> long_prompt(511, 1);
+    PagedKvCachePool long_pool(
+        PagedKvCachePoolConfig{40, 28, 8, 16, 128, DType::F16});
+    auto long_paged =
+        model.generate_greedy_paged(long_pool, long_prompt, 2, std::nullopt, 512);
+    std::cout << "long_paged_generated_count=" << long_paged.generated_ids.size()
+              << " final_cache_length=" << long_paged.final_cache_length
+              << " stop_reason=" << long_paged.stop_reason << "\n";
+    if (long_paged.generated_ids.size() != 2 ||
+        long_paged.stop_reason != "max_new_tokens" ||
+        long_paged.final_cache_length != 512 ||
+        long_pool.used_block_count() != 0)
+      fail("long generate_greedy_paged did not reach 512 or leaked blocks");
+
     expect_throw("invalid eos", [&] { model.generate_greedy(prompt, 1, 151936, 16); });
     expect_throw("invalid max_seq_len", [&] { model.generate_greedy(prompt, 1, std::nullopt, 3); });
     expect_throw("out of range prompt", [&] { model.generate_greedy({1, 151936}, 1, std::nullopt, 16); });

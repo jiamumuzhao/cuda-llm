@@ -1,6 +1,7 @@
 #include "llm/ops_cuda.h"
 #include "llm/cuda_check.h"
 #include <cuda_fp16.h>
+#include <mma.h>
 #include <cub/cub.cuh>
 #include <algorithm>
 #include <array>
@@ -12,11 +13,13 @@
 #include <atomic>
 #include <stdexcept>
 #include <string>
+#include <type_traits>
 #define __global__void __global__ void
 #ifndef CUDART_INF_F
 #define CUDART_INF_F 3.402823466e+38F
 #endif
 namespace llm {
+using namespace nvcuda;
 namespace {
 std::atomic<uint64_t> g_valid_lengths_h2d{0};
 std::atomic<uint64_t> g_valid_lengths_d2h{0};
@@ -113,6 +116,273 @@ template<class T> __global__ void gqa_batched_valid_lengths_kernel(
     result += weight * rf(v[((b * seq + u) * kh + kvhead) * d + dim]);
   }
   o[idx] = wf<T>(result / denominator);
+}
+__global__ void gqa_packed_wmma_kernel(
+    const __half* q, const __half* k, const __half* v,
+    const int32_t* offsets, __half* o, size_t tokens, size_t qh,
+    size_t kh, size_t d, size_t sequences, float scale) {
+  constexpr size_t kQueryTile = 16;
+  constexpr size_t kKeyTile = 32;
+  const size_t head_group = blockIdx.x % kh;
+  size_t query_tile = blockIdx.x / kh;
+  __shared__ __half q_tile[2][16][128];
+  __shared__ __half k_tile[kKeyTile * 128];
+  __shared__ __half v_tile[kKeyTile * 128];
+  __shared__ float score_tile[2][16][kKeyTile];
+  __shared__ int32_t sequence_begin;
+  __shared__ int32_t query_begin;
+  __shared__ int32_t query_count;
+
+  if (threadIdx.x == 0) {
+    size_t sequence = 0;
+    while (sequence < sequences) {
+      const size_t length =
+          static_cast<size_t>(offsets[sequence + 1] - offsets[sequence]);
+      const size_t tiles = (length + kQueryTile - 1) / kQueryTile;
+      if (query_tile < tiles) {
+        sequence_begin = offsets[sequence];
+        query_begin = offsets[sequence] + query_tile * kQueryTile;
+        query_count = min(kQueryTile, length - query_tile * kQueryTile);
+        break;
+      }
+      query_tile -= tiles;
+      ++sequence;
+    }
+  }
+  __syncthreads();
+
+  const size_t begin = static_cast<size_t>(sequence_begin);
+  const size_t first_query = static_cast<size_t>(query_begin);
+  const size_t query_count_local = static_cast<size_t>(query_count);
+  const size_t head_slot = threadIdx.x / 64;
+  const size_t dim_pair = threadIdx.x % 64;
+  const size_t qhead = head_group * 2 + head_slot;
+  float maximum[kQueryTile], denominator[kQueryTile];
+  float result[kQueryTile][2];
+  for (size_t row = 0; row < kQueryTile; ++row) {
+    maximum[row] = -CUDART_INF_F;
+    denominator[row] = 0.0f;
+    result[row][0] = 0.0f;
+    result[row][1] = 0.0f;
+  }
+
+  for (size_t tile_begin = begin; tile_begin < first_query + query_count_local;
+       tile_begin += kKeyTile) {
+    const size_t tile_count =
+        min(kKeyTile, first_query + query_count_local - tile_begin);
+
+    for (size_t i = threadIdx.x; i < 2 * 16 * 128; i += blockDim.x) {
+      const size_t head = i / (16 * 128);
+      const size_t rem = i % (16 * 128);
+      const size_t row = rem / 128;
+      const size_t dim = rem % 128;
+      q_tile[head][row][dim] =
+          (head < 2 && row < query_count_local)
+              ? q[((first_query + row) * qh + head_group * 2 + head) * d + dim]
+              : __float2half(0.0f);
+    }
+    for (size_t i = threadIdx.x; i < kKeyTile * 128; i += blockDim.x) {
+      const size_t key = i / 128;
+      const size_t dim = i % 128;
+      if (key < tile_count) {
+        k_tile[i] = k[((tile_begin + key) * kh + head_group) * d + dim];
+        v_tile[i] = v[((tile_begin + key) * kh + head_group) * d + dim];
+      } else {
+        k_tile[i] = __float2half(0.0f);
+        v_tile[i] = __float2half(0.0f);
+      }
+    }
+    __syncthreads();
+
+    for (size_t key_half = 0; key_half < 2; ++key_half) {
+      const size_t wmma_head = threadIdx.x / 32;
+      const size_t wmma_head_slot = wmma_head / 2;
+      const size_t wmma_key_half = wmma_head % 2;
+      if (wmma_head < 4 && wmma_key_half == key_half) {
+        wmma::fragment<wmma::matrix_a, 16, 16, 16, __half,
+                       wmma::row_major> a_frag;
+        wmma::fragment<wmma::matrix_b, 16, 16, 16, __half,
+                       wmma::col_major> b_frag;
+        wmma::fragment<wmma::accumulator, 16, 16, 16, float> c_frag;
+        wmma::fill_fragment(c_frag, 0.0f);
+        for (size_t d_tile = 0; d_tile < 8; ++d_tile) {
+          wmma::load_matrix_sync(
+              a_frag, &q_tile[wmma_head_slot][0][d_tile * 16], 128);
+          wmma::load_matrix_sync(
+              b_frag, &k_tile[key_half * 16 * 128 + d_tile * 16], 128);
+          wmma::mma_sync(c_frag, a_frag, b_frag, c_frag);
+        }
+        wmma::store_matrix_sync(
+            &score_tile[wmma_head_slot][0][key_half * 16], c_frag, 32,
+            wmma::mem_row_major);
+      }
+    }
+    __syncthreads();
+
+    for (size_t row = 0; row < query_count_local; ++row) {
+      for (size_t key = 0; key < tile_count; ++key) {
+        if (tile_begin + key <= first_query + row) {
+          const float score = score_tile[head_slot][row][key] * scale;
+          const float new_max = fmaxf(maximum[row], score);
+          const float old_scale = expf(maximum[row] - new_max);
+          const float weight = expf(score - new_max);
+          result[row][0] =
+              result[row][0] * old_scale +
+              weight * __half2float(v_tile[key * 128 + dim_pair]);
+          result[row][1] =
+              result[row][1] * old_scale +
+              weight * __half2float(v_tile[key * 128 + dim_pair + 64]);
+          denominator[row] = denominator[row] * old_scale + weight;
+          maximum[row] = new_max;
+        }
+      }
+    }
+    __syncthreads();
+  }
+
+  for (size_t row = 0; row < query_count_local; ++row) {
+    const size_t token = first_query + row;
+    o[(token * qh + qhead) * d + dim_pair] =
+        __float2half(result[row][0] / denominator[row]);
+    o[(token * qh + qhead) * d + dim_pair + 64] =
+        __float2half(result[row][1] / denominator[row]);
+  }
+}
+
+template<class T> __global__ void gqa_packed_kernel(
+    const T* q, const T* k, const T* v, const int32_t* offsets, T* o,
+    size_t tokens, size_t qh, size_t kh, size_t d, size_t sequences,
+    float scale) {
+  // One block owns four consecutive query tokens and all query heads mapped
+  // to one KV head. For Qwen3 GQA this is 4 tokens x 2 query heads, so the
+  // K/V tile is loaded once and reused across both query heads.
+  constexpr size_t kQueryTile = 4;
+  constexpr size_t kKeyTile = 32;
+  const size_t heads_per_kv = qh / kh;
+  const size_t kvhead = blockIdx.x % kh;
+  size_t query_tile = blockIdx.x / kh;
+  __shared__ T k_tile[kKeyTile * 128];
+  __shared__ T v_tile[kKeyTile * 128];
+  __shared__ float tile_scores[kQueryTile][2][kKeyTile];
+  __shared__ float partial_scores[kQueryTile][2][4][kKeyTile];
+  __shared__ int32_t sequence_begin;
+  __shared__ int32_t query_begin;
+  __shared__ int32_t query_count;
+
+  if (threadIdx.x == 0) {
+    size_t sequence = 0;
+    while (sequence < sequences) {
+      const size_t length = static_cast<size_t>(offsets[sequence + 1] - offsets[sequence]);
+      const size_t tiles = (length + kQueryTile - 1) / kQueryTile;
+      if (query_tile < tiles) {
+        sequence_begin = offsets[sequence];
+        query_begin = offsets[sequence] + query_tile * kQueryTile;
+        query_count = min(kQueryTile, length - query_tile * kQueryTile);
+        break;
+      }
+      query_tile -= tiles;
+      ++sequence;
+    }
+  }
+  __syncthreads();
+
+  const size_t begin = static_cast<size_t>(sequence_begin);
+  const size_t first_query = static_cast<size_t>(query_begin);
+  const size_t query_count_local = static_cast<size_t>(query_count);
+  const size_t head_slot = threadIdx.x / 128;
+  const size_t dim = threadIdx.x % 128;
+  const size_t local_warp = (threadIdx.x / 32) % 4;
+  const size_t lane = threadIdx.x % 32;
+  const size_t qhead = kvhead * heads_per_kv + head_slot;
+  float query[kQueryTile] = {};
+  float maximum[kQueryTile], denominator[kQueryTile], result[kQueryTile];
+  for (size_t row = 0; row < kQueryTile; ++row) {
+    maximum[row] = -CUDART_INF_F;
+    denominator[row] = 0.0f;
+    result[row] = 0.0f;
+    if (row < query_count_local)
+      query[row] = rf(q[((first_query + row) * qh + qhead) * d + dim]);
+  }
+
+  for (size_t tile_begin = begin; tile_begin < first_query + query_count_local;
+       tile_begin += kKeyTile) {
+    const size_t tile_count = min(kKeyTile, first_query + query_count_local - tile_begin);
+    if constexpr (std::is_same<T, __half>::value) {
+      const size_t vector_count = tile_count * d / 2;
+      for (size_t i = threadIdx.x; i < vector_count; i += blockDim.x) {
+        const size_t key = i / (d / 2);
+        const size_t feature = (i % (d / 2)) * 2;
+        const __half2* k2 = reinterpret_cast<const __half2*>(
+            k + ((tile_begin + key) * kh + kvhead) * d + feature);
+        const __half2* v2 = reinterpret_cast<const __half2*>(
+            v + ((tile_begin + key) * kh + kvhead) * d + feature);
+        reinterpret_cast<__half2*>(k_tile + key * d + feature)[0] = *k2;
+        reinterpret_cast<__half2*>(v_tile + key * d + feature)[0] = *v2;
+      }
+    } else {
+      for (size_t i = threadIdx.x; i < tile_count * d; i += blockDim.x) {
+        const size_t key = i / d;
+        const size_t feature = i % d;
+        k_tile[i] = k[((tile_begin + key) * kh + kvhead) * d + feature];
+        v_tile[i] = v[((tile_begin + key) * kh + kvhead) * d + feature];
+      }
+    }
+    __syncthreads();
+
+    // Each warp computes partial dot products for all keys in the tile.
+    // There is no block barrier inside this loop: warp shuffles reduce the
+    // 32 feature lanes, and lane 0 publishes one partial score per key.
+    for (size_t row = 0; row < kQueryTile; ++row) {
+      if (row < query_count_local) {
+        for (size_t key = 0; key < tile_count; ++key) {
+          if (tile_begin + key <= first_query + row) {
+            float partial = query[row] * rf(k_tile[key * d + dim]);
+            for (int delta = 16; delta > 0; delta >>= 1)
+              partial += __shfl_down_sync(0xffffffff, partial, delta);
+            if ((threadIdx.x % 32) == 0)
+              partial_scores[row][head_slot][local_warp][key] = partial;
+          }
+        }
+      }
+    }
+    __syncthreads();
+
+    // Warp zero of each head group completes the cross-warp reduction for
+    // every key in parallel.
+    if (local_warp == 0) {
+      for (size_t row = 0; row < query_count_local; ++row) {
+        for (size_t key = lane; key < tile_count; key += 32) {
+          if (tile_begin + key <= first_query + row) {
+            float score = 0.0f;
+            for (size_t w = 0; w < 4; ++w)
+              score += partial_scores[row][head_slot][w][key];
+            tile_scores[row][head_slot][key] = score * scale;
+          }
+        }
+      }
+    }
+    __syncthreads();
+
+    // All lanes consume the complete score tile and update online softmax.
+    for (size_t row = 0; row < query_count_local; ++row) {
+      for (size_t key = 0; key < tile_count; ++key) {
+        if (tile_begin + key <= first_query + row) {
+          const float score = tile_scores[row][head_slot][key];
+          const float new_max = fmaxf(maximum[row], score);
+          const float old_scale = expf(maximum[row] - new_max);
+          const float weight = expf(score - new_max);
+          result[row] = result[row] * old_scale +
+                        weight * rf(v_tile[key * d + dim]);
+          denominator[row] = denominator[row] * old_scale + weight;
+          maximum[row] = new_max;
+        }
+      }
+    }
+    __syncthreads();
+  }
+  for (size_t row = 0; row < query_count_local; ++row)
+    o[((first_query + row) * qh + qhead) * d + dim] =
+        wf<T>(result[row] / denominator[row]);
 }
 template<class T>__global__void gqadk(const T*q,const T*k,const T*v,T*o,size_t cache_len,size_t qh,size_t kh,size_t d,float scale){size_t idx=blockIdx.x*blockDim.x+threadIdx.x,total=qh*d;if(idx<total){size_t dim=idx%d,qhead=idx/d,kvhead=qhead/(qh/kh);float mx=-CUDART_INF_F;for(size_t u=0;u<cache_len;++u){float score=0;for(size_t e=0;e<d;++e)score+=rf(q[qhead*d+e])*rf(k[(u*kh+kvhead)*d+e]);mx=fmaxf(mx,score*scale);}float den=0,z=0;for(size_t u=0;u<cache_len;++u){float score=0;for(size_t e=0;e<d;++e)score+=rf(q[qhead*d+e])*rf(k[(u*kh+kvhead)*d+e]);float w=expf(score*scale-mx);den+=w;z+=w*rf(v[(u*kh+kvhead)*d+dim]);}o[idx]=wf<T>(z/den);}}
 __global__ void gqadk_batched(const __half* q, const __half* const* keys,
@@ -315,6 +585,67 @@ Tensor cuda_gqa_attention_batched_valid_lengths(
     if (host_lengths[i] <= 0 || static_cast<size_t>(host_lengths[i]) > seq)
       throw std::invalid_argument("cuda_gqa_attention_batched_valid_lengths: valid_lengths[" + std::to_string(i) + "] must be in [1,S]");
   return cuda_gqa_attention_batched_valid_lengths_checked(q, k, v, valid_lengths);
+}
+void cuda_gqa_attention_packed_out(
+    const Tensor& q, const Tensor& k, const Tensor& v, const Tensor& offsets,
+    Tensor& output) {
+  req(q, "cuda_gqa_attention_packed");
+  req(k, "cuda_gqa_attention_packed");
+  req(v, "cuda_gqa_attention_packed");
+  same_dtype(q, k, v, "cuda_gqa_attention_packed");
+  rank(q, 3, "cuda_gqa_attention_packed");
+  rank(k, 3, "cuda_gqa_attention_packed");
+  rank(v, 3, "cuda_gqa_attention_packed");
+  const auto qs = q.shape(), ks = k.shape();
+  if (qs[0] < 1 || qs[0] > 1024 || qs[1] != 16 || qs[2] != 128 ||
+      ks != std::vector<int64_t>{qs[0], 8, 128} || v.shape() != ks)
+    throw std::invalid_argument(
+        "cuda_gqa_attention_packed: expected q=[T,16,128], k/v=[T,8,128], T in [1,1024]");
+  output_req(output, qs, q.dtype(), "cuda_gqa_attention_packed");
+  if (offsets.device() != DeviceType::CUDA || offsets.dtype() != DType::I32 ||
+      !offsets.is_contiguous() || offsets.shape().size() != 1 ||
+      offsets.shape()[0] < 2 || offsets.shape()[0] > 5)
+    throw std::invalid_argument(
+        "cuda_gqa_attention_packed: offsets must be CUDA/I32/contiguous [B+1], B in [1,4]");
+  std::vector<int32_t> host_offsets(static_cast<size_t>(offsets.shape()[0]));
+  CUDA_CHECK(cudaMemcpy(host_offsets.data(), offsets.data(),
+                        host_offsets.size() * sizeof(int32_t),
+                        cudaMemcpyDeviceToHost));
+  if (host_offsets.front() != 0 || host_offsets.back() != qs[0])
+    throw std::invalid_argument(
+        "cuda_gqa_attention_packed: offsets must start at 0 and end at T");
+  for (size_t i = 1; i < host_offsets.size(); ++i)
+    if (host_offsets[i] <= host_offsets[i - 1])
+      throw std::invalid_argument(
+          "cuda_gqa_attention_packed: offsets must be strictly increasing");
+  const size_t sequence_count = static_cast<size_t>(offsets.shape()[0] - 1);
+  const size_t query_tile_size = q.dtype() == DType::F16 ? 16 : 4;
+  size_t query_tiles = 0;
+  for (size_t i = 0; i < sequence_count; ++i) {
+    const size_t length =
+        static_cast<size_t>(host_offsets[i + 1] - host_offsets[i]);
+    query_tiles += (length + query_tile_size - 1) / query_tile_size;
+  }
+  const size_t blocks = query_tiles * 8;
+  const float scale = 1.0f / sqrtf(128.0f);
+  if (q.dtype() == DType::F32)
+    gqa_packed_kernel<<<blocks, 256>>>(
+        (const float*)q.data(), (const float*)k.data(), (const float*)v.data(),
+        (const int32_t*)offsets.data(), (float*)output.data(), qs[0], 16, 8,
+        128, sequence_count, scale);
+  else
+    gqa_packed_wmma_kernel<<<blocks, 128>>>(
+        (const __half*)q.data(), (const __half*)k.data(), (const __half*)v.data(),
+        (const int32_t*)offsets.data(), (__half*)output.data(), qs[0], 16, 8,
+        128, sequence_count, scale);
+  CUDA_KERNEL_CHECK();
+}
+
+Tensor cuda_gqa_attention_packed(const Tensor& q, const Tensor& k,
+                                 const Tensor& v, const Tensor& offsets) {
+  Tensor output(q.dtype(), q.shape(), DeviceType::CUDA);
+  cuda_gqa_attention_packed_out(q, k, v, offsets, output);
+  return output;
 }
 Tensor cuda_gqa_decode_attention(const Tensor&q,const Tensor&k,const Tensor&v,size_t cache_length){req(q,"cuda_gqa_decode_attention");req(k,"cuda_gqa_decode_attention");req(v,"cuda_gqa_decode_attention");same_dtype(q,k,v,"cuda_gqa_decode_attention");rank(q,3,"cuda_gqa_decode_attention");rank(k,3,"cuda_gqa_decode_attention");rank(v,3,"cuda_gqa_decode_attention");auto a=q.shape(),b=k.shape(),c=v.shape();if(a[0]!=1||a[1]!=16||a[2]!=128||b[1]!=8||b[2]!=128||c!=b||cache_length==0||cache_length>size_t(b[0]))throw std::invalid_argument("cuda_gqa_decode_attention: expected q=[1,16,128], k/v=[capacity,8,128], and 0<cache_length<=capacity");Tensor o(q.dtype(),a,DeviceType::CUDA);size_t n=16*128;float scale=1.f/sqrtf(128.f);if(q.dtype()==DType::F32)gqadk<<<(n+255)/256,256>>>((float*)q.data(),(float*)k.data(),(float*)v.data(),(float*)o.data(),cache_length,16,8,128,scale);else gqadk<<<(n+255)/256,256>>>((__half*)q.data(),(__half*)k.data(),(__half*)v.data(),(__half*)o.data(),cache_length,16,8,128,scale);CUDA_KERNEL_CHECK();return o;}
 Tensor cuda_gqa_decode_attention_batched(
@@ -551,4 +882,87 @@ void cuda_gqa_decode_attention_batched_variable_lengths_out(
       batch, 16, 8, 128, 1.0f / sqrtf(128.0f));
   CUDA_KERNEL_CHECK();
 }
+
+void cuda_rope_token_positions_out(const Tensor& x, const Tensor& positions_device,
+                                   float theta, Tensor& o) {
+  req(x, "cuda_rope_token_positions");
+  if (x.device() != DeviceType::CUDA || x.dtype() != DType::F16 ||
+      x.shape().size() != 3 || x.shape()[0] <= 0 ||
+      (x.shape()[1] != 16 && x.shape()[1] != 8) || x.shape()[2] != 128 ||
+      positions_device.device() != DeviceType::CUDA ||
+      positions_device.dtype() != DType::I32 || !positions_device.is_contiguous() ||
+      positions_device.shape() != std::vector<int64_t>{x.shape()[0]} || theta <= 0.0f)
+    throw std::invalid_argument("cuda_rope_token_positions: expected CUDA/F16 [T,H,128] and CUDA/I32 positions [T]");
+  output_req(o, x.shape(), x.dtype(), "cuda_rope_token_positions");
+  const size_t n = static_cast<size_t>(x.shape()[0]) *
+                   static_cast<size_t>(x.shape()[1]) * 64;
+  rope_decode_batched_kernel<<<(n + 255) / 256, 256>>>(
+      static_cast<const __half*>(x.data()), static_cast<__half*>(o.data()),
+      static_cast<const int32_t*>(positions_device.data()),
+      static_cast<size_t>(x.shape()[0]), static_cast<size_t>(x.shape()[1]),
+      128, theta);
+  CUDA_KERNEL_CHECK();
+}
+
+
+template<class T>
+__global__ void packed_kv_prefill_copy_kernel(
+    const T* key, const T* value, T* storage, const int32_t* block_table,
+    std::size_t token_count, std::size_t num_kv_heads, std::size_t head_dim,
+    std::size_t block_size, std::size_t total_blocks, std::size_t layer) {
+  const std::size_t index = blockIdx.x * blockDim.x + threadIdx.x;
+  const std::size_t token_elements = num_kv_heads * head_dim;
+  const std::size_t kind_elements = token_count * token_elements;
+  if (index >= kind_elements * 2) return;
+  const std::size_t kind = index / kind_elements;
+  const std::size_t rem = index - kind * kind_elements;
+  const std::size_t token = rem / token_elements;
+  const std::size_t element = rem % token_elements;
+  const std::size_t block = static_cast<std::size_t>(block_table[token / block_size]);
+  const std::size_t slot = token % block_size;
+  const std::size_t dst = ((((layer * total_blocks + block) * 2 + kind) *
+                             block_size + slot) * token_elements) + element;
+  storage[dst] = kind == 0 ? key[rem] : value[rem];
+}
+
+void cuda_paged_kv_prefill_copy_packed(
+    const Tensor& key_packed, const Tensor& value_packed,
+    Tensor& storage, const Tensor& block_table_cuda,
+    std::size_t layer, std::size_t total_blocks, std::size_t block_size,
+    std::size_t num_kv_heads, std::size_t head_dim, std::size_t token_count) {
+  const char* function = "cuda_paged_kv_prefill_copy_packed";
+  if (key_packed.device() != DeviceType::CUDA ||
+      value_packed.device() != DeviceType::CUDA ||
+      storage.device() != DeviceType::CUDA ||
+      block_table_cuda.device() != DeviceType::CUDA ||
+      key_packed.dtype() != DType::F16 ||
+      value_packed.dtype() != DType::F16 ||
+      storage.dtype() != DType::F16 ||
+      block_table_cuda.dtype() != DType::I32 ||
+      !key_packed.is_contiguous() || !value_packed.is_contiguous() ||
+      !storage.is_contiguous() || !block_table_cuda.is_contiguous() ||
+      key_packed.shape() != std::vector<int64_t>{
+          static_cast<int64_t>(token_count),
+          static_cast<int64_t>(num_kv_heads), static_cast<int64_t>(head_dim)} ||
+      value_packed.shape() != key_packed.shape() ||
+      layer >= storage.shape().at(0) ||
+      total_blocks != static_cast<std::size_t>(storage.shape().at(1)) ||
+      storage.shape() != std::vector<int64_t>{
+          storage.shape().at(0), static_cast<int64_t>(total_blocks), 2,
+          static_cast<int64_t>(block_size),
+          static_cast<int64_t>(num_kv_heads), static_cast<int64_t>(head_dim)} ||
+      block_table_cuda.numel() < (token_count + block_size - 1) / block_size ||
+      token_count == 0 || block_size == 0 || num_kv_heads == 0 || head_dim == 0) {
+    throw std::invalid_argument(std::string(function) + ": invalid CUDA/F16 packed KV or pool metadata");
+  }
+  const std::size_t elements = token_count * num_kv_heads * head_dim * 2;
+  packed_kv_prefill_copy_kernel<<<(elements + 255) / 256, 256>>>(
+      static_cast<const __half*>(key_packed.data()),
+      static_cast<const __half*>(value_packed.data()),
+      reinterpret_cast<__half*>(storage.data()),
+      static_cast<const int32_t*>(block_table_cuda.data()),
+      token_count, num_kv_heads, head_dim, block_size, total_blocks, layer);
+  CUDA_KERNEL_CHECK();
+}
+
 }

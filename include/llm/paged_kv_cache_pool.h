@@ -33,6 +33,7 @@ class PagedKvCachePool {
 
   BlockManager& block_manager() noexcept { return block_manager_; }
   const BlockManager& block_manager() const noexcept { return block_manager_; }
+  Tensor& storage() noexcept { return storage_; }
   const Tensor& storage() const noexcept { return storage_; }
   std::size_t token_bytes() const noexcept { return token_bytes_; }
   std::size_t kv_plane_bytes() const noexcept { return kind_bytes_; }

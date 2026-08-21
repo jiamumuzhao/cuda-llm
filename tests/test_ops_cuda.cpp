@@ -153,6 +153,40 @@ int main() {
     for (int seq : {4, 5, 8, 16, 32}) test_gqa(seq, false);
     for (int seq : {4, 32}) test_gqa(seq, true);
 
+    // Two sequences packed back-to-back must be isolated exactly as two
+    // independent causal attention calls, with no padding rows.
+    Tensor packed_q = gqa_input({10, 16, 128}, 0.03f);
+    Tensor packed_k = gqa_input({10, 8, 128}, 0.07f);
+    Tensor packed_v = gqa_input({10, 8, 128}, 0.11f);
+    Tensor packed_offsets(DType::I32, {3});
+    packed_offsets.data_i32()[0] = 0;
+    packed_offsets.data_i32()[1] = 4;
+    packed_offsets.data_i32()[2] = 10;
+    Tensor packed_q_cuda = packed_q.to(DeviceType::CUDA);
+    Tensor packed_k_cuda = packed_k.to(DeviceType::CUDA);
+    Tensor packed_v_cuda = packed_v.to(DeviceType::CUDA);
+    Tensor packed_actual = cuda_gqa_attention_packed(
+        packed_q_cuda, packed_k_cuda, packed_v_cuda,
+        packed_offsets.to(DeviceType::CUDA));
+    metric("cuda_gqa_attention_packed sequence=0",
+           packed_actual.slice_first_dim(0, 4).to(DeviceType::CPU),
+           cuda_gqa_attention(packed_q_cuda.slice_first_dim(0, 4),
+                              packed_k_cuda.slice_first_dim(0, 4),
+                              packed_v_cuda.slice_first_dim(0, 4)).to(DeviceType::CPU), 1e-4f);
+    metric("cuda_gqa_attention_packed sequence=1",
+           packed_actual.slice_first_dim(4, 6).to(DeviceType::CPU),
+           cuda_gqa_attention(packed_q_cuda.slice_first_dim(4, 6),
+                              packed_k_cuda.slice_first_dim(4, 6),
+                              packed_v_cuda.slice_first_dim(4, 6)).to(DeviceType::CPU), 1e-4f);
+    Tensor invalid_offsets(DType::I32, {3});
+    invalid_offsets.data_i32()[0] = 0;
+    invalid_offsets.data_i32()[1] = 6;
+    invalid_offsets.data_i32()[2] = 9;
+    expect_throw("cuda_gqa_attention_packed invalid terminal offset", [&] {
+      cuda_gqa_attention_packed(packed_q_cuda, packed_k_cuda, packed_v_cuda,
+                                invalid_offsets.to(DeviceType::CUDA));
+    });
+
     Tensor huge_q = Tensor::from_f32({4, 1, 1}, std::vector<float>(4, 1e10f));
     Tensor huge_k = Tensor::from_f32({4, 1, 1}, std::vector<float>(4, 1e10f));
     Tensor huge_v = Tensor::from_f32({4, 1, 1}, std::vector<float>(4, 2.0f));

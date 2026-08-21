@@ -134,6 +134,32 @@ int main() {
       std::cout << "context=" << length << " direct paged prefill/KV/decode passed\n";
     }
 
+    // Long-context regression: packed paged prefill crosses the 32-block
+    // boundary, then paged decode appends the 512th token.
+    {
+      const std::vector<int32_t> ids = prompt(511, 5121);
+      PagedKvCachePool pool(pool_config(40));
+      const BlockId fragmented = pool.block_manager().allocate();
+      Qwen3PagedKvCache cache(pool, 512);
+      Tensor prefill = model.prefill_logits_paged(ids, cache);
+      expect(prefill.shape() == std::vector<int64_t>{511, 151936},
+             "long packed prefill logits shape mismatch");
+      expect(cache.length() == 511 && cache.block_table().size() == 32,
+             "long packed prefill did not allocate 32 blocks");
+      expect(cache.block_table().front() != fragmented,
+             "long packed prefill reused released blocker unexpectedly");
+      Tensor decode = model.decode_logits_paged(901, cache);
+      expect(decode.shape() == std::vector<int64_t>{1, 151936},
+             "long paged decode logits shape mismatch");
+      expect(cache.length() == 512 && cache.block_table().size() == 32,
+             "long paged decode did not reach max_seq_len=512");
+      CUDA_CHECK(cudaDeviceSynchronize());
+      cache.release_all();
+      pool.block_manager().release(fragmented);
+      expect(pool.used_block_count() == 0, "long paged prefill/decode leaked blocks");
+      std::cout << "context=511->512 packed paged prefill/decode passed\n";
+    }
+
     // Direct transaction API: full commit, explicit abort, conflicts, and limits.
     PagedKvCachePool pool(pool_config(4));
     Qwen3PagedKvCache cache(pool, 32);

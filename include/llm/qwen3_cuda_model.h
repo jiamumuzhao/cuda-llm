@@ -55,6 +55,9 @@ class Qwen3CudaModel {
   Tensor prefill_logits_paged_batch(
       const std::vector<std::vector<int32_t>>& prompt_ids_batch,
       const std::vector<Qwen3PagedKvCache*>& caches) const;
+  Tensor prefill_logits_paged_packed_batch(
+      const std::vector<std::vector<int32_t>>& prompt_ids_batch,
+      const std::vector<Qwen3PagedKvCache*>& caches) const;
   Tensor prefill_logits_paged_padded_batch(
       const PagedPaddedPrefillBatch& batch) const;
   Tensor prefill_logits_batch_with_caches(
@@ -77,6 +80,14 @@ class Qwen3CudaModel {
   GreedyGenerationResult generate_greedy(
       const std::vector<int32_t>& prompt_ids, size_t max_new_tokens,
       std::optional<int32_t> eos_token_id, size_t max_seq_len) const;
+  GreedyGenerationResult generate_greedy_paged(
+      PagedKvCachePool& pool, const std::vector<int32_t>& prompt_ids,
+      size_t max_new_tokens, std::optional<int32_t> eos_token_id,
+      size_t max_seq_len) const;
+  GreedyGenerationResult generate_sampled_paged(
+      PagedKvCachePool& pool, const std::vector<int32_t>& prompt_ids,
+      size_t max_new_tokens, std::optional<int32_t> eos_token_id,
+      size_t max_seq_len, const SamplingConfig& sampling) const;
   GreedyGenerationResult generate_sampled(
       const std::vector<int32_t>& prompt_ids, size_t max_new_tokens,
       std::optional<int32_t> eos_token_id, size_t max_seq_len,

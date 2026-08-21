@@ -635,7 +635,7 @@ bit-exact、variable-length paged decode 接续、非法右 padding 的无副作
 pool exhaustion 与故障回滚后的 cache/pool 重试。仍未完成 packed prefill、scheduler prefill batching、
 prefix sharing/COW、long-context、FlashAttention、CUDA Graph 和性能优化。
 
-### [ ] Phase 7：paged continuous batching
+### [-] Phase 7：paged continuous batching
 
 **目标**：把 Phase 5 的 scheduler 接到 Phase 6 的 block manager，形成 vLLM 风格的核心运行时。
 
@@ -647,6 +647,42 @@ prefix sharing/COW、long-context、FlashAttention、CUDA Graph 和性能优化�
 - 此阶段再评估 CUDA Graph：只对稳定的 decode batch shape 建 graph，动态形状走 eager fallback。
 
 **验收**：paged 与 contiguous KV 输出一致；随机请求进入/退出后无 cache 泄漏；吞吐、TTFT 和显存碎片率均可比较。
+
+#### Phase 7.1：paged scheduler continuous-batching core
+
+已接入 paged scheduler 的 continuous-batching 主路径：等待队列可按
+`max_prefill_batch_size` 以 B=1/2/4 进行原子 direct paged prefill，变长 prompt
+复用 right-padded paged prefill；prefill 失败会恢复 FIFO 队列并回收所有已分配
+block。新增 `max_prefill_tokens`、`max_decode_tokens`、`max_consecutive_prefill`
+和 `max_consecutive_decode` 配置，批次 metrics 记录有效/填充 token 数、decode
+token 数、批大小、队列选择和连续轮次。decode 仍使用真正的 batched paged
+attention，并在请求完成、取消、超时和 CUDA batch 失败时保持事务回滚。
+
+当前仍是同步、单线程 scheduler；异步 streaming、prefix sharing/COW、CUDA
+Graph 和服务层 backpressure 留给后续阶段。因此 Phase 7
+整体保持进行中状态，Phase 7.1 主路径已可用。
+
+#### Phase 7.2：scheduler packed-prefill admission
+
+已新增 `prefer_packed_prefill`：当等待队列前缀请求长度相同且批大小为 2/4
+时，scheduler 直接调用 equal-length `prefill_logits_paged_batch`，不创建
+padding token 或 valid-length metadata；不同长度请求保留 right-padded fallback。
+批次 action 会标记为 `paged_prefill_packed`，并将 padding ratio 记录为 0。
+该阶段完成调度层无 padding 的 equal-length packed admission；测试验证 B=2
+packed prefill 的采样和最终结果与单请求基线一致，并在 RTX 2080 Ti CUDA
+回归中通过。任意长度 token-packed attention kernel 仍未实现，继续使用
+right-padded fallback。
+
+#### Phase 7.2a：token-packed GQA attention 与完整 packed prefill
+
+新增 `cuda_gqa_attention_packed`：输入使用扁平 `[T,heads,head_dim]` 布局和
+CUDA/I32 `offsets[B+1]`，kernel 在每个序列内部执行 causal GQA，序列之间
+不会互相注意。已覆盖 F32、非等长两序列、终止 offset 和序列隔离测试，并在
+RTX 2080 Ti 上通过 `ops_cuda` 回归。完整模型 packed prefill 接线已完成：新增 token-major RoPE、packed layer trace、
+变长 paged prefill 入口和 paged KV slice 写入；scheduler 的 prefer_packed_prefill
+直接使用扁平 token 路径，并按真实 token 数计算预算。变长 prompt 的 last-valid
+logits、KV ownership、zero padding ratio、pool 回收和后续 paged decode 均已回归
+验证，RTX 2080 Ti 测试通过。
 
 ### [ ] Phase 8：prefix cache、Radix 思路和更聪明的调度
 

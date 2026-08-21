@@ -1,6 +1,7 @@
 #include "llm/qwen3_paged_kv_cache.h"
 
 #include "llm/cuda_check.h"
+#include "llm/ops_cuda.h"
 
 #include <cuda_runtime.h>
 
@@ -26,7 +27,7 @@ Qwen3PagedKvCache::Qwen3PagedKvCache(PagedKvCachePool& pool,
       capacity_(max_seq_len), written_(kLayers, false) {
   require_qwen3_pool();
   if (max_seq_len == 0 || max_seq_len > kMaxSequence)
-    error("max_seq_len must be in [1,32]");
+    error("max_seq_len must be in [1,512]");
 }
 
 void Qwen3PagedKvCache::require_pending(const char* function) const {
@@ -117,7 +118,7 @@ void Qwen3PagedKvCache::begin_prefill(std::size_t token_count) {
   if (length_ != 0 || sequence_.block_count() != 0)
     error("begin_prefill requires an empty cache");
   if (token_count == 0 || token_count > capacity_ || token_count > kMaxSequence)
-    error("begin_prefill token_count must be in [1,min(32,capacity)]");
+    error("begin_prefill token_count must be in [1,min(512,capacity)]");
   begin_length_ = length_;
   begin_block_count_ = sequence_.block_count();
   try {
@@ -220,6 +221,48 @@ void Qwen3PagedKvCache::append_prefill_layer_kv_batched_valid_slice(
                           value_base + token * token_bytes, token_bytes,
                           cudaMemcpyDeviceToDevice));
   }
+  written_[layer] = true;
+}
+
+void Qwen3PagedKvCache::append_prefill_layer_kv_packed_slice(
+    std::size_t layer, const Tensor& key_packed, const Tensor& value_packed,
+    std::size_t offset, std::size_t token_count) {
+  Tensor block_table_cuda = sequence_.make_device_block_table_i32();
+  append_prefill_layer_kv_packed_slice(
+      layer, key_packed, value_packed, offset, token_count, block_table_cuda);
+}
+
+void Qwen3PagedKvCache::append_prefill_layer_kv_packed_slice(
+    std::size_t layer, const Tensor& key_packed, const Tensor& value_packed,
+    std::size_t offset, std::size_t token_count,
+    const Tensor& block_table_cuda) {
+  if (transaction_ != Transaction::Prefill)
+    error("append_prefill_layer_kv_packed_slice requires an active prefill transaction");
+  if (layer >= kLayers) error("layer out of range");
+  if (written_[layer]) error("layer written twice");
+  if (token_count != prefill_token_count_ || token_count == 0 ||
+      offset > static_cast<std::size_t>(key_packed.shape().at(0)) ||
+      token_count > static_cast<std::size_t>(key_packed.shape().at(0)) - offset)
+    error("invalid packed offset or token count");
+  const std::vector<int64_t> expected = {
+      key_packed.shape().at(0), 8, 128};
+  if (key_packed.device() != DeviceType::CUDA ||
+      value_packed.device() != DeviceType::CUDA ||
+      key_packed.dtype() != DType::F16 || value_packed.dtype() != DType::F16 ||
+      !key_packed.is_contiguous() || !value_packed.is_contiguous() ||
+      key_packed.shape() != expected || value_packed.shape() != expected)
+    error("key/value packed must be CUDA/F16/contiguous [T,8,128]");
+  if (block_table_cuda.device() != DeviceType::CUDA ||
+      block_table_cuda.dtype() != DType::I32 ||
+      !block_table_cuda.is_contiguous() ||
+      block_table_cuda.numel() != sequence_.block_table().size())
+    error("block_table_cuda must be CUDA/I32/contiguous with the sequence block count");
+  const auto& config = pool_->config();
+  cuda_paged_kv_prefill_copy_packed(
+      key_packed.slice_first_dim(offset, token_count),
+      value_packed.slice_first_dim(offset, token_count),
+      pool_->storage(), block_table_cuda, layer, config.total_blocks,
+      config.block_size, config.num_kv_heads, config.head_dim, token_count);
   written_[layer] = true;
 }
 

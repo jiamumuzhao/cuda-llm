@@ -30,6 +30,8 @@ add_executable(test_qwen3_cuda_benchmark_helpers tests/test_qwen3_cuda_benchmark
 target_link_libraries(test_qwen3_cuda_benchmark_helpers PRIVATE llm_core)
 add_executable(test_ops_cuda tests/test_ops_cuda.cpp)
 target_link_libraries(test_ops_cuda PRIVATE llm_core)
+add_executable(benchmark_packed_attention tests/benchmark_packed_attention.cpp)
+target_link_libraries(benchmark_packed_attention PRIVATE llm_core)
 add_executable(test_gqa_valid_lengths_cuda tests/test_gqa_valid_lengths_cuda.cpp)
 target_link_libraries(test_gqa_valid_lengths_cuda PRIVATE llm_core)
 add_executable(test_qwen3_layer_cuda tests/test_qwen3_layer_cuda.cpp)
@@ -201,3 +203,6 @@ set_tests_properties(greedy_generation PROPERTIES
   WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
 set_tests_properties(sampled_generation PROPERTIES
   WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(benchmark_paged_scheduler tests/benchmark_paged_scheduler.cpp)
+target_link_libraries(benchmark_paged_scheduler PRIVATE llm_core)

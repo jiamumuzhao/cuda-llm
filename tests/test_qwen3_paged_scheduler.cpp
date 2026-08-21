@@ -252,6 +252,46 @@ int main() {
     expect(batch2_pool.used_block_count() == 0, "B=2 decode leaked paged blocks");
     std::cout << "paged decode B=2 FIFO batch/result alignment passed\n";
 
+    // Phase 7.2a: variable-length admission uses token-packed prefill.
+    // Its sampled first token and final result must remain identical to the
+    // independent single-request baseline.
+    PagedKvCachePool packed_pool({8, 28, 8, 16, 128, DType::F16});
+    PagedSchedulerConfig packed_cfg;
+    packed_cfg.max_seq_len = 32;
+    packed_cfg.max_active_requests = 2;
+    packed_cfg.max_prefill_batch_size = 2;
+    packed_cfg.max_decode_batch_size = 2;
+    packed_cfg.prefer_packed_prefill = true;
+    Qwen3PagedRequestScheduler packed_scheduler(model, packed_pool, packed_cfg);
+    const std::vector<int32_t> packed_prompt_b = {31, 32, 33, 34, 35, 36};
+    const auto packed_expected_a = model.generate_greedy(batch2_prompt_a, 3, std::nullopt, 32);
+    const auto packed_expected_b = model.generate_greedy(packed_prompt_b, 2, std::nullopt, 32);
+    packed_scheduler.submit(request_with_prompt(250, batch2_prompt_a, 3));
+    packed_scheduler.submit(request_with_prompt(251, packed_prompt_b, 2));
+    expect(packed_scheduler.step(), "packed prefill did not execute");
+    const auto& packed_metric = packed_scheduler.metrics().back();
+    expect(packed_metric.action == "paged_prefill_packed" &&
+               packed_metric.prefill_batch_size == 2 &&
+               packed_metric.valid_prefill_tokens == batch2_prompt_a.size() + packed_prompt_b.size() &&
+               packed_metric.padded_prefill_tokens == batch2_prompt_a.size() + packed_prompt_b.size() &&
+               packed_metric.prefill_padding_ratio == 0.0 &&
+               packed_metric.selected_request_ids == std::vector<uint64_t>{250, 251},
+           "packed prefill metric mismatch");
+    while (packed_scheduler.has_unfinished()) packed_scheduler.step();
+    const auto packed_finished = packed_scheduler.take_finished();
+    expect(packed_finished.size() == 2, "packed requests did not finish");
+    const FinishedRequest* packed_a = nullptr;
+    const FinishedRequest* packed_b = nullptr;
+    for (const auto& result : packed_finished) {
+      if (result.request_id == 250) packed_a = &result;
+      if (result.request_id == 251) packed_b = &result;
+    }
+    expect(packed_a && packed_b, "packed request IDs missing");
+    check_result(*packed_a, packed_expected_a, 250);
+    check_result(*packed_b, packed_expected_b, 251);
+    expect(packed_pool.used_block_count() == 0, "packed prefill leaked blocks");
+    std::cout << "Phase 7.2a variable-length packed prefill admission/result alignment passed\n";
+
     // B=4 exercises the supported maximum and the smaller follow-up batches
     // after rows finish at different generated-token limits.  The scheduler
     // deliberately emits B=2 instead of unsupported B=3, then B=1.

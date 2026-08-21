@@ -53,6 +53,14 @@ class Qwen3PagedKvCache {
       const Tensor& value_batched, std::size_t batch_index,
       std::size_t batch_size, std::size_t max_seq_len,
       std::size_t valid_length);
+  void append_prefill_layer_kv_packed_slice(
+      std::size_t layer, const Tensor& key_packed,
+      const Tensor& value_packed, std::size_t offset,
+      std::size_t token_count);
+  void append_prefill_layer_kv_packed_slice(
+      std::size_t layer, const Tensor& key_packed,
+      const Tensor& value_packed, std::size_t offset,
+      std::size_t token_count, const Tensor& block_table_cuda);
   void commit_prefill();
   void abort_prefill() noexcept;
   void release_all() noexcept;
@@ -71,7 +79,7 @@ class Qwen3PagedKvCache {
   static constexpr std::size_t kLayers = 28;
   static constexpr std::size_t kKvHeads = 8;
   static constexpr std::size_t kHeadDim = 128;
-  static constexpr std::size_t kMaxSequence = 32;
+  static constexpr std::size_t kMaxSequence = 512;
 
   void error(const std::string& message) const;
   void require_pending(const char* function) const;

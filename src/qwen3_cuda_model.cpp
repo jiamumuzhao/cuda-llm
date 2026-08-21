@@ -223,9 +223,12 @@ void qwen3_clear_paged_prefill_fault_for_testing() {
 
 Tensor Qwen3CudaModel::prefill_logits_paged(
     const std::vector<int32_t>& prompt_ids, Qwen3PagedKvCache& cache) const {
-  // Preserve the established single-request API shape [S, vocab].  The
-  // batched entry point below intentionally returns [B, S, vocab].
-  Tensor batched = prefill_logits_paged_batch({prompt_ids}, {&cache});
+  // Preserve the established single-request API shape [S, vocab].  Use
+  // packed prefill for long contexts because the legacy equal-length path is
+  // intentionally capped at 32 tokens.
+  Tensor batched = prompt_ids.size() > 32
+                        ? prefill_logits_paged_packed_batch({prompt_ids}, {&cache})
+                        : prefill_logits_paged_batch({prompt_ids}, {&cache});
   return batched.reshape({static_cast<int64_t>(prompt_ids.size()),
                           token_embedding_.shape().at(0)});
 }
@@ -296,6 +299,104 @@ Tensor Qwen3CudaModel::prefill_logits_paged_batch(
         final_hidden.reshape({static_cast<int64_t>(batch * seq), 1024}),
         token_embedding_)
         .reshape({static_cast<int64_t>(batch), static_cast<int64_t>(seq), 151936});
+    CUDA_CHECK(cudaDeviceSynchronize());
+    for (auto* cache : caches) cache->commit_prefill();
+    return logits;
+  } catch (...) {
+    for (size_t b = 0; b < batch; ++b)
+      if (begun[b]) caches[b]->abort_prefill();
+    throw;
+  }
+}
+
+Tensor Qwen3CudaModel::prefill_logits_paged_packed_batch(
+    const std::vector<std::vector<int32_t>>& prompt_ids_batch,
+    const std::vector<Qwen3PagedKvCache*>& caches) const {
+  const size_t batch = prompt_ids_batch.size();
+  if (batch != 1 && batch != 2 && batch != 4)
+    model_error("packed paged prefill batch size must be 1, 2, or 4");
+  if (caches.size() != batch)
+    model_error("packed paged prefill prompt/cache count mismatch");
+  size_t total_tokens = 0;
+  std::vector<size_t> offsets(batch + 1, 0);
+  for (size_t b = 0; b < batch; ++b) {
+    const size_t length = prompt_ids_batch[b].size();
+    if (length == 0 || length > 512)
+      model_error("packed paged prefill prompt length must be in [1,512]");
+    offsets[b + 1] = offsets[b] + length;
+    total_tokens += length;
+  }
+  if (total_tokens > 512)
+    model_error("packed paged prefill total token count must be <= 512");
+  PagedKvCachePool* common_pool = nullptr;
+  std::vector<Qwen3PagedKvCache*> unique;
+  unique.reserve(batch);
+  for (size_t b = 0; b < batch; ++b) {
+    if (!caches[b] || std::find(unique.begin(), unique.end(), caches[b]) != unique.end())
+      model_error("packed paged prefill cache pointers must be non-null and unique");
+    unique.push_back(caches[b]);
+    if (!common_pool) common_pool = &caches[b]->pool();
+    if (&caches[b]->pool() != common_pool)
+      model_error("packed paged prefill caches must share one PagedKvCachePool");
+    const auto& c = caches[b]->pool().config();
+    if (c.num_layers != layers_.size() || c.num_kv_heads != 8 ||
+        c.head_dim != 128 || c.dtype != DType::F16)
+      model_error("packed paged prefill pool is not Qwen3-compatible F16");
+    if (caches[b]->length() != 0 || !caches[b]->block_table().empty() ||
+        caches[b]->in_decode_transaction() || caches[b]->in_prefill_transaction() ||
+        caches[b]->capacity() < prompt_ids_batch[b].size())
+      model_error("packed paged prefill cache must be empty and have capacity >= prompt length");
+    for (int32_t id : prompt_ids_batch[b])
+      if (id < 0 || id >= 151936)
+        model_error("packed paged prefill token out of range");
+  }
+  std::vector<bool> begun(batch, false);
+  std::vector<Tensor> block_tables;
+  try {
+    for (size_t b = 0; b < batch; ++b) {
+      caches[b]->begin_prefill(prompt_ids_batch[b].size());
+      begun[b] = true;
+    }
+    block_tables.reserve(batch);
+    for (auto* cache : caches)
+      block_tables.push_back(cache->make_device_block_table_i32());
+    std::vector<int32_t> flat_ids;
+    std::vector<int32_t> positions;
+    flat_ids.reserve(total_tokens);
+    positions.reserve(total_tokens);
+    for (const auto& prompt : prompt_ids_batch)
+      for (size_t i = 0; i < prompt.size(); ++i) {
+        flat_ids.push_back(prompt[i]);
+        positions.push_back(static_cast<int32_t>(i));
+      }
+    Tensor positions_cuda(DType::I32, {static_cast<int64_t>(total_tokens)},
+                          DeviceType::CUDA);
+    Tensor offsets_cuda(DType::I32, {static_cast<int64_t>(batch + 1)},
+                        DeviceType::CUDA);
+    CUDA_CHECK(cudaMemcpy(positions_cuda.data(), positions.data(),
+                          positions.size() * sizeof(int32_t),
+                          cudaMemcpyHostToDevice));
+    std::vector<int32_t> offsets_i32(offsets.begin(), offsets.end());
+    CUDA_CHECK(cudaMemcpy(offsets_cuda.data(), offsets_i32.data(),
+                          offsets_i32.size() * sizeof(int32_t),
+                          cudaMemcpyHostToDevice));
+    Tensor hidden = cuda_embedding_lookup(token_embedding_, flat_ids);
+    for (size_t layer = 0; layer < layers_.size(); ++layer) {
+      Qwen3PackedLayerTrace trace =
+          qwen3_decoder_layer_cuda_trace_fp16_packed(
+              hidden, positions_cuda, offsets_cuda, layers_[layer],
+              rms_norm_eps_, rope_theta_);
+      for (size_t b = 0; b < batch; ++b)
+        caches[b]->append_prefill_layer_kv_packed_slice(
+            layer, trace.k_rope, trace.v_linear, offsets[b],
+            prompt_ids_batch[b].size(), block_tables[b]);
+      if (g_paged_prefill_fault_layer == layer)
+        throw std::runtime_error("Qwen3CudaModel: injected packed prefill fault after layer=" +
+                                 std::to_string(layer));
+      hidden = std::move(trace.layer_output);
+    }
+    Tensor logits = cuda_lm_head(
+        cuda_rms_norm(hidden, final_norm_, rms_norm_eps_), token_embedding_);
     CUDA_CHECK(cudaDeviceSynchronize());
     for (auto* cache : caches) cache->commit_prefill();
     return logits;
@@ -799,6 +900,111 @@ GreedyGenerationResult Qwen3CudaModel::generate_greedy(
       return result;
     }
     logits = decode_logits(token, cache);
+  }
+  result.stop_reason = "max_new_tokens";
+  result.final_cache_length = cache.length();
+  return result;
+}
+
+GreedyGenerationResult Qwen3CudaModel::generate_greedy_paged(
+    PagedKvCachePool& pool, const std::vector<int32_t>& prompt_ids,
+    size_t max_new_tokens, std::optional<int32_t> eos_token_id,
+    size_t max_seq_len) const {
+  if (prompt_ids.empty()) model_error("generate_greedy_paged requires non-empty prompt");
+  if (max_seq_len == 0 || max_seq_len < prompt_ids.size())
+    model_error("max_seq_len actual=" + std::to_string(max_seq_len) +
+                " expected >= prompt length and > 0");
+  if (eos_token_id && (*eos_token_id < 0 || *eos_token_id >= 151936))
+    model_error("eos_token_id actual=" + std::to_string(*eos_token_id) +
+                " expected in [0,151936)");
+  for (size_t i = 0; i < prompt_ids.size(); ++i)
+    if (prompt_ids[i] < 0 || prompt_ids[i] >= 151936)
+      model_error("prompt_ids[" + std::to_string(i) + "] out of range");
+
+  GreedyGenerationResult result;
+  if (max_new_tokens == 0) {
+    result.stop_reason = "max_new_tokens";
+    return result;
+  }
+
+  Qwen3PagedKvCache cache(pool, max_seq_len);
+  struct CacheReleaseGuard {
+    Qwen3PagedKvCache& cache;
+    ~CacheReleaseGuard() { cache.release_all(); }
+  } cache_guard{cache};
+  Tensor logits = prefill_logits_paged(prompt_ids, cache);
+  for (size_t step = 0; step < max_new_tokens; ++step) {
+    const int32_t token = cuda_argmax_last_row(logits);
+    result.generated_ids.push_back(token);
+    if (eos_token_id && token == *eos_token_id) {
+      result.stop_reason = "eos";
+      result.final_cache_length = cache.length();
+      return result;
+    }
+    if (step + 1 == max_new_tokens) {
+      result.stop_reason = "max_new_tokens";
+      result.final_cache_length = cache.length();
+      return result;
+    }
+    if (cache.length() >= cache.capacity()) {
+      result.stop_reason = "cache_capacity";
+      result.final_cache_length = cache.length();
+      return result;
+    }
+    logits = decode_logits_paged(token, cache);
+  }
+  result.stop_reason = "max_new_tokens";
+  result.final_cache_length = cache.length();
+  return result;
+}
+
+GreedyGenerationResult Qwen3CudaModel::generate_sampled_paged(
+    PagedKvCachePool& pool, const std::vector<int32_t>& prompt_ids,
+    size_t max_new_tokens, std::optional<int32_t> eos_token_id,
+    size_t max_seq_len, const SamplingConfig& sampling) const {
+  if (prompt_ids.empty()) model_error("generate_sampled_paged requires non-empty prompt");
+  if (max_seq_len == 0 || max_seq_len < prompt_ids.size())
+    model_error("max_seq_len actual=" + std::to_string(max_seq_len) +
+                " expected >= prompt length and > 0");
+  if (eos_token_id && (*eos_token_id < 0 || *eos_token_id >= 151936))
+    model_error("eos_token_id actual=" + std::to_string(*eos_token_id) +
+                " expected in [0,151936)");
+  for (size_t i = 0; i < prompt_ids.size(); ++i)
+    if (prompt_ids[i] < 0 || prompt_ids[i] >= 151936)
+      model_error("prompt_ids[" + std::to_string(i) + "] out of range");
+
+  GreedyGenerationResult result;
+  if (max_new_tokens == 0) {
+    result.stop_reason = "max_new_tokens";
+    return result;
+  }
+
+  Qwen3PagedKvCache cache(pool, max_seq_len);
+  struct CacheReleaseGuard {
+    Qwen3PagedKvCache& cache;
+    ~CacheReleaseGuard() { cache.release_all(); }
+  } cache_guard{cache};
+  Tensor logits = prefill_logits_paged(prompt_ids, cache);
+  CudaSampler sampler(151936);
+  for (size_t step = 0; step < max_new_tokens; ++step) {
+    const int32_t token = sampler.sample_last_row(logits, sampling, step);
+    result.generated_ids.push_back(token);
+    if (eos_token_id && token == *eos_token_id) {
+      result.stop_reason = "eos";
+      result.final_cache_length = cache.length();
+      return result;
+    }
+    if (step + 1 == max_new_tokens) {
+      result.stop_reason = "max_new_tokens";
+      result.final_cache_length = cache.length();
+      return result;
+    }
+    if (cache.length() >= cache.capacity()) {
+      result.stop_reason = "cache_capacity";
+      result.final_cache_length = cache.length();
+      return result;
+    }
+    logits = decode_logits_paged(token, cache);
   }
   result.stop_reason = "max_new_tokens";
   result.final_cache_length = cache.length();

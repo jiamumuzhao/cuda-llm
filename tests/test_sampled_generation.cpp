@@ -29,6 +29,16 @@ int main() {
     if(k.generated_ids!=greedy.generated_ids) fail("top_k=1 differs from greedy");
     auto cap=model.generate_sampled(prompt,2,std::nullopt,4,cfg);
     if(cap.generated_ids.size()!=1 || cap.stop_reason!="cache_capacity" || cap.final_cache_length!=4) fail("cache capacity stopping mismatch");
+    PagedKvCachePool paged_pool(
+        PagedKvCachePoolConfig{32, 28, 8, 16, 128, DType::F16});
+    auto paged = model.generate_sampled_paged(
+        paged_pool, prompt, 3, std::nullopt, 16, cfg);
+    if (paged.generated_ids != a.generated_ids ||
+        paged.stop_reason != a.stop_reason ||
+        paged.final_cache_length != a.final_cache_length ||
+        paged_pool.used_block_count() != 0)
+      fail("paged sampled generation differs from contiguous or leaked blocks");
+    std::cout << "paged sampled generation: passed\n";
     std::cout << "sampled cache-capacity stopping: passed\n";
     for (const auto* ids : {&a.generated_ids, &sampled_eos.generated_ids, &k.generated_ids, &cap.generated_ids})
       for (auto id : *ids) if(id<0 || id>=151936) fail("sampled id out of range");

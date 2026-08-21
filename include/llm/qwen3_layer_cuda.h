@@ -29,6 +29,12 @@ struct Qwen3BatchLayerTrace {
   Tensor layer_output;
 };
 
+struct Qwen3PackedLayerTrace {
+  Tensor k_rope;
+  Tensor v_linear;
+  Tensor layer_output;
+};
+
 Qwen3LayerTrace qwen3_decoder_layer_cuda_trace(
     const Tensor& hidden_states_cuda,
     const std::vector<int32_t>& position_ids,
@@ -94,6 +100,11 @@ Qwen3BatchLayerTrace qwen3_decoder_layer_cuda_trace_fp16_batch_valid_lengths(
     const Qwen3CudaLayerWeights& weights,
     float rms_norm_eps,
     float rope_theta);
+
+Qwen3PackedLayerTrace qwen3_decoder_layer_cuda_trace_fp16_packed(
+    const Tensor& hidden_th, const Tensor& positions_cuda,
+    const Tensor& offsets_cuda, const Qwen3CudaLayerWeights& weights,
+    float rms_norm_eps, float rope_theta);
 
 Tensor qwen3_decoder_layer_cuda_decode_fp16_batch(
     const Tensor& hidden_bh, int32_t shared_position,

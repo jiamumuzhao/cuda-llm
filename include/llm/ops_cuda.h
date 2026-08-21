@@ -63,6 +63,18 @@ Tensor cuda_gqa_attention_batched_valid_lengths(const Tensor&, const Tensor&,
                                                 const Tensor&, const Tensor&);
 Tensor cuda_gqa_attention_batched_valid_lengths_checked(
     const Tensor&, const Tensor&, const Tensor&, const Tensor&);
+// Token-packed causal GQA attention. q/k/v are flattened [T,H,D] and
+// offsets is CUDA/I32 [B+1], where each sequence occupies [offset[b],offset[b+1]).
+Tensor cuda_gqa_attention_packed(const Tensor& q, const Tensor& k,
+                                 const Tensor& v, const Tensor& offsets);
+void cuda_gqa_attention_packed_out(const Tensor& q, const Tensor& k,
+                                      const Tensor& v, const Tensor& offsets,
+                                      Tensor& output);
+void cuda_paged_kv_prefill_copy_packed(
+    const Tensor& key_packed, const Tensor& value_packed,
+    Tensor& storage, const Tensor& block_table_cuda,
+    std::size_t layer, std::size_t total_blocks, std::size_t block_size,
+    std::size_t num_kv_heads, std::size_t head_dim, std::size_t token_count);
 Tensor cuda_gqa_decode_attention(const Tensor& q_one, const Tensor& k_cache,
                                  const Tensor& v_cache, size_t cache_length);
 Tensor cuda_gqa_decode_attention_batched(
@@ -79,6 +91,7 @@ void cuda_rope_batched_out(const Tensor& input,
 void cuda_rope_batched_positions_out(const Tensor& input,
                                      const Tensor& positions_device,
                                      float theta, Tensor& output);
+void cuda_rope_token_positions_out(const Tensor& input, const Tensor& positions_device, float theta, Tensor& output);
 void cuda_gqa_decode_attention_batched_out(
     const Tensor& q_bhd, const std::vector<const Tensor*>& key_caches,
     const std::vector<const Tensor*>& value_caches, size_t cache_length,
