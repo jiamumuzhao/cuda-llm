@@ -25,6 +25,32 @@ std::string shape_string(const std::vector<int64_t>& shape) {
   return result + "]";
 }
 
+struct DecoderLayerShape {
+  std::size_t hidden = 0;
+  std::size_t q_heads = 0;
+  std::size_t kv_heads = 0;
+  std::size_t head_dim = 0;
+  std::size_t intermediate = 0;
+  std::size_t q_dim() const noexcept { return q_heads * head_dim; }
+  std::size_t kv_dim() const noexcept { return kv_heads * head_dim; }
+};
+
+DecoderLayerShape infer_layer_shape(const Qwen3CudaLayerWeights& w,
+                                     const char* function) {
+  if (w.q_proj.shape().size() != 2 || w.k_proj.shape().size() != 2 ||
+      w.q_norm.shape().size() != 1 || w.gate_proj.shape().size() != 2)
+    invalid(function, "layer weights have invalid rank");
+  const auto hidden = static_cast<std::size_t>(w.q_proj.shape()[1]);
+  const auto head_dim = static_cast<std::size_t>(w.q_norm.shape()[0]);
+  const auto q_dim = static_cast<std::size_t>(w.q_proj.shape()[0]);
+  const auto kv_dim = static_cast<std::size_t>(w.k_proj.shape()[0]);
+  if (hidden == 0 || head_dim == 0 || q_dim % head_dim != 0 ||
+      kv_dim % head_dim != 0)
+    invalid(function, "layer weights have incompatible attention dimensions");
+  return {hidden, q_dim / head_dim, kv_dim / head_dim, head_dim,
+          static_cast<std::size_t>(w.gate_proj.shape()[0])};
+}
+
 void require_tensor(const Tensor& tensor, const std::vector<int64_t>& shape,
                     const char* name, DType expected_dtype, const char* function) {
   if (tensor.device() != DeviceType::CUDA || tensor.dtype() != expected_dtype ||
@@ -42,9 +68,12 @@ void require_tensor(const Tensor& tensor, const std::vector<int64_t>& shape,
 void validate(const Tensor& hidden, const std::vector<int32_t>& positions,
               const Qwen3CudaLayerWeights& w, float eps, float theta,
               DType expected_dtype, const char* function) {
-  if (hidden.shape().size() != 2) invalid(function, "hidden_states must have shape [seq_len,1024]");
+  const auto shape = infer_layer_shape(w, function);
+  if (hidden.shape().size() != 2)
+    invalid(function, "hidden_states must have rank 2");
   const int64_t seq = hidden.shape()[0];
-  require_tensor(hidden, {seq, 1024}, "hidden_states", expected_dtype, function);
+  require_tensor(hidden, {seq, static_cast<int64_t>(shape.hidden)},
+                 "hidden_states", expected_dtype, function);
   if (seq < 1 || seq > 32)
     invalid(function, "unsupported seq_len=" + std::to_string(seq) + ", expected 1..32");
   if (positions.size() != static_cast<size_t>(seq))
@@ -52,17 +81,17 @@ void validate(const Tensor& hidden, const std::vector<int32_t>& positions,
             " does not match seq_len=" + std::to_string(seq));
   if (!(eps > 0.0f)) invalid(function, "rms_norm_eps must be > 0, actual=" + std::to_string(eps));
   if (!(theta > 0.0f)) invalid(function, "rope_theta must be > 0, actual=" + std::to_string(theta));
-  require_tensor(w.input_norm, {1024}, "input_norm", expected_dtype, function);
-  require_tensor(w.q_proj, {2048, 1024}, "q_proj", expected_dtype, function);
-  require_tensor(w.k_proj, {1024, 1024}, "k_proj", expected_dtype, function);
-  require_tensor(w.v_proj, {1024, 1024}, "v_proj", expected_dtype, function);
-  require_tensor(w.q_norm, {128}, "q_norm", expected_dtype, function);
-  require_tensor(w.k_norm, {128}, "k_norm", expected_dtype, function);
-  require_tensor(w.o_proj, {1024, 2048}, "o_proj", expected_dtype, function);
-  require_tensor(w.post_attention_norm, {1024}, "post_attention_norm", expected_dtype, function);
-  require_tensor(w.gate_proj, {3072, 1024}, "gate_proj", expected_dtype, function);
-  require_tensor(w.up_proj, {3072, 1024}, "up_proj", expected_dtype, function);
-  require_tensor(w.down_proj, {1024, 3072}, "down_proj", expected_dtype, function);
+  require_tensor(w.input_norm, {static_cast<int64_t>(shape.hidden)}, "input_norm", expected_dtype, function);
+  require_tensor(w.q_proj, {static_cast<int64_t>(shape.q_dim()), static_cast<int64_t>(shape.hidden)}, "q_proj", expected_dtype, function);
+  require_tensor(w.k_proj, {static_cast<int64_t>(shape.kv_dim()), static_cast<int64_t>(shape.hidden)}, "k_proj", expected_dtype, function);
+  require_tensor(w.v_proj, {static_cast<int64_t>(shape.kv_dim()), static_cast<int64_t>(shape.hidden)}, "v_proj", expected_dtype, function);
+  require_tensor(w.q_norm, {static_cast<int64_t>(shape.head_dim)}, "q_norm", expected_dtype, function);
+  require_tensor(w.k_norm, {static_cast<int64_t>(shape.head_dim)}, "k_norm", expected_dtype, function);
+  require_tensor(w.o_proj, {static_cast<int64_t>(shape.hidden), static_cast<int64_t>(shape.q_dim())}, "o_proj", expected_dtype, function);
+  require_tensor(w.post_attention_norm, {static_cast<int64_t>(shape.hidden)}, "post_attention_norm", expected_dtype, function);
+  require_tensor(w.gate_proj, {static_cast<int64_t>(shape.intermediate), static_cast<int64_t>(shape.hidden)}, "gate_proj", expected_dtype, function);
+  require_tensor(w.up_proj, {static_cast<int64_t>(shape.intermediate), static_cast<int64_t>(shape.hidden)}, "up_proj", expected_dtype, function);
+  require_tensor(w.down_proj, {static_cast<int64_t>(shape.hidden), static_cast<int64_t>(shape.intermediate)}, "down_proj", expected_dtype, function);
 }
 
 }
