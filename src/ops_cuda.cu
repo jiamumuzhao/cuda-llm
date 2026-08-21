@@ -647,6 +647,19 @@ Tensor cuda_gqa_attention_packed(const Tensor& q, const Tensor& k,
   cuda_gqa_attention_packed_out(q, k, v, offsets, output);
   return output;
 }
+Tensor cuda_gqa_attention_packed(const Tensor& q, const Tensor& k,
+                                 const Tensor& v, const Tensor& offsets,
+                                 const AttentionConfig& config) {
+  if (config.num_q_heads == 0 || config.num_kv_heads == 0 ||
+      config.head_dim == 0 || !config.is_gqa())
+    throw std::invalid_argument(
+        "cuda_gqa_attention_packed: invalid AttentionConfig");
+  if (config.num_q_heads != 16 || config.num_kv_heads != 8 ||
+      config.head_dim != 128)
+    throw std::invalid_argument(
+        "cuda_gqa_attention_packed: kernel configuration is unsupported");
+  return cuda_gqa_attention_packed(q, k, v, offsets);
+}
 Tensor cuda_gqa_decode_attention(const Tensor&q,const Tensor&k,const Tensor&v,size_t cache_length){req(q,"cuda_gqa_decode_attention");req(k,"cuda_gqa_decode_attention");req(v,"cuda_gqa_decode_attention");same_dtype(q,k,v,"cuda_gqa_decode_attention");rank(q,3,"cuda_gqa_decode_attention");rank(k,3,"cuda_gqa_decode_attention");rank(v,3,"cuda_gqa_decode_attention");auto a=q.shape(),b=k.shape(),c=v.shape();if(a[0]!=1||a[1]!=16||a[2]!=128||b[1]!=8||b[2]!=128||c!=b||cache_length==0||cache_length>size_t(b[0]))throw std::invalid_argument("cuda_gqa_decode_attention: expected q=[1,16,128], k/v=[capacity,8,128], and 0<cache_length<=capacity");Tensor o(q.dtype(),a,DeviceType::CUDA);size_t n=16*128;float scale=1.f/sqrtf(128.f);if(q.dtype()==DType::F32)gqadk<<<(n+255)/256,256>>>((float*)q.data(),(float*)k.data(),(float*)v.data(),(float*)o.data(),cache_length,16,8,128,scale);else gqadk<<<(n+255)/256,256>>>((__half*)q.data(),(__half*)k.data(),(__half*)v.data(),(__half*)o.data(),cache_length,16,8,128,scale);CUDA_KERNEL_CHECK();return o;}
 Tensor cuda_gqa_decode_attention_batched(
     const Tensor& q, const std::vector<const Tensor*>& keys,

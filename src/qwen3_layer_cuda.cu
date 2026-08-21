@@ -731,8 +731,9 @@ Qwen3PackedLayerTrace qwen3_decoder_layer_cuda_trace_fp16_packed(
   Tensor k_rope(DType::F16, k.shape(), DeviceType::CUDA);
   cuda_rope_token_positions_out(q, positions_cuda, theta, q_rope);
   cuda_rope_token_positions_out(k, positions_cuda, theta, k_rope);
-  Tensor attention = cuda_gqa_attention_packed(q_rope, k_rope, v, offsets_cuda)
-      .reshape({tokens,2048});
+  const AttentionConfig attention_config{16, 8, 128, 16, 512, true};
+  Tensor attention = cuda_gqa_attention_packed(
+      q_rope, k_rope, v, offsets_cuda, attention_config).reshape({tokens,2048});
   Tensor o_proj = cuda_linear(attention, w.o_proj);
   Tensor attention_residual = cuda_add(residual, o_proj);
   Tensor post_norm = cuda_rms_norm(attention_residual, w.post_attention_norm, eps);

@@ -1,5 +1,6 @@
 #pragma once
 #include "tensor.h"
+#include "attention_config.h"
 #include <cstddef>
 #include <cstdint>
 #include <vector>
@@ -67,6 +68,9 @@ Tensor cuda_gqa_attention_batched_valid_lengths_checked(
 // offsets is CUDA/I32 [B+1], where each sequence occupies [offset[b],offset[b+1]).
 Tensor cuda_gqa_attention_packed(const Tensor& q, const Tensor& k,
                                  const Tensor& v, const Tensor& offsets);
+Tensor cuda_gqa_attention_packed(const Tensor& q, const Tensor& k,
+                                 const Tensor& v, const Tensor& offsets,
+                                 const AttentionConfig& config);
 void cuda_gqa_attention_packed_out(const Tensor& q, const Tensor& k,
                                       const Tensor& v, const Tensor& offsets,
                                       Tensor& output);
