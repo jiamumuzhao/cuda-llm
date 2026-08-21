@@ -163,6 +163,80 @@ __global__ void paged_gqa_decode_batch_kernel(
   out_row[q_head * head_dim + dim] = __float2half(result / denominator);
 }
 
+
+__global__ void paged_gqa_decode_batch_grouped_kernel(
+    const __half* q, const __half* storage, const int32_t* block_tables,
+    const int32_t* positions, __half* output, std::size_t layer,
+    std::size_t total_blocks, std::size_t block_size, std::size_t kv_heads,
+    std::size_t head_dim, std::size_t q_heads, std::size_t max_blocks,
+    float scale) {
+  const std::size_t group = q_heads / kv_heads;
+  const std::size_t local_head = threadIdx.x / head_dim;
+  const std::size_t dim = threadIdx.x % head_dim;
+  if (local_head >= group) return;
+
+  __shared__ __half key_tile[1024];
+  __shared__ __half value_tile[1024];
+  __shared__ float score_workspace[4][32];
+
+  const std::size_t row = blockIdx.x / kv_heads;
+  const std::size_t kv_head = blockIdx.x % kv_heads;
+  const std::size_t q_head = kv_head * group + local_head;
+  const std::size_t token_stride = kv_heads * head_dim;
+  const std::size_t plane_elements = block_size * token_stride;
+  const std::size_t q_row_stride = q_heads * head_dim;
+  const __half* q_row = q + row * q_row_stride;
+  __half* out_row = output + row * q_row_stride;
+  const int32_t* table = block_tables + row * max_blocks;
+  const std::size_t kv_length = static_cast<std::size_t>(positions[row]) + 1;
+  const std::size_t warp = dim / 32;
+  const int lane = static_cast<int>(dim % 32);
+
+  float running_max = -CUDART_INF_F;
+  float denominator = 0.0f;
+  float result = 0.0f;
+  for (std::size_t token = 0; token < kv_length; ++token) {
+    const std::size_t block = static_cast<std::size_t>(table[token / block_size]);
+    const std::size_t offset = token % block_size;
+    const std::size_t layer_block = (layer * total_blocks + block) * 2;
+    const __half* key = storage + layer_block * plane_elements +
+                        offset * token_stride + kv_head * head_dim;
+    const __half* value = storage + (layer_block + 1) * plane_elements +
+                          offset * token_stride + kv_head * head_dim;
+    if (local_head == 0) {
+      key_tile[dim] = key[dim];
+      value_tile[dim] = value[dim];
+    }
+    __syncthreads();
+
+    const __half* query = q_row + q_head * head_dim;
+    float partial = __half2float(query[dim]) * __half2float(key_tile[dim]);
+    for (std::size_t e = dim + blockDim.x; e < head_dim; e += blockDim.x)
+      partial += __half2float(query[e]) * __half2float(key_tile[e]);
+    for (int delta = 16; delta > 0; delta >>= 1)
+      partial += __shfl_down_sync(0xffffffff, partial, delta);
+    if (lane == 0) score_workspace[local_head][warp] = partial;
+    __syncthreads();
+    if (dim == 0) {
+      float score = score_workspace[local_head][0];
+      for (std::size_t w = 1; w < (head_dim + 31) / 32; ++w)
+        score += score_workspace[local_head][w];
+      score_workspace[local_head][0] = score * scale;
+    }
+    __syncthreads();
+
+    const float score = score_workspace[local_head][0];
+    const float next_max = fmaxf(running_max, score);
+    const float old_scale = expf(running_max - next_max);
+    const float weight = expf(score - next_max);
+    denominator = denominator * old_scale + weight;
+    result = result * old_scale + weight * __half2float(value_tile[dim]);
+    running_max = next_max;
+    __syncthreads();
+  }
+  out_row[q_head * head_dim + dim] = __float2half(result / denominator);
+}
+
 [[noreturn]] void paged_error(const std::string& message) {
   throw std::invalid_argument("cuda_paged_gqa_attention_decode: " + message);
 }
@@ -308,15 +382,29 @@ void cuda_paged_gqa_attention_decode_batch_out(
   const std::size_t batch = static_cast<std::size_t>(q_bhd.shape()[0]);
   const std::size_t max_blocks = static_cast<std::size_t>(block_tables_bm_i32.shape()[1]);
   g_paged_batch_attention_launches.fetch_add(1, std::memory_order_relaxed);
-  paged_gqa_decode_batch_kernel<<<static_cast<unsigned int>(batch * num_q_heads),
-                                  static_cast<unsigned int>(head_dim)>>>(
-      static_cast<const __half*>(q_bhd.data()),
-      static_cast<const __half*>(pool.storage().data()),
-      static_cast<const int32_t*>(block_tables_bm_i32.data()),
-      static_cast<const int32_t*>(positions_before_append_b_i32.data()),
-      static_cast<__half*>(output_bhd.data()), layer, config.total_blocks,
-      config.block_size, num_kv_heads, head_dim, num_q_heads, max_blocks,
-      1.0f / sqrtf(static_cast<float>(head_dim)));
+  const std::size_t group = num_q_heads / num_kv_heads;
+  if (group > 1 && head_dim == 128 && group * head_dim <= 1024) {
+    paged_gqa_decode_batch_grouped_kernel<<<
+        static_cast<unsigned int>(batch * num_kv_heads),
+        static_cast<unsigned int>(group * head_dim)>>>(
+        static_cast<const __half*>(q_bhd.data()),
+        static_cast<const __half*>(pool.storage().data()),
+        static_cast<const int32_t*>(block_tables_bm_i32.data()),
+        static_cast<const int32_t*>(positions_before_append_b_i32.data()),
+        static_cast<__half*>(output_bhd.data()), layer, config.total_blocks,
+        config.block_size, num_kv_heads, head_dim, num_q_heads, max_blocks,
+        1.0f / sqrtf(static_cast<float>(head_dim)));
+  } else {
+    paged_gqa_decode_batch_kernel<<<static_cast<unsigned int>(batch * num_q_heads),
+                                    static_cast<unsigned int>(head_dim)>>>(
+        static_cast<const __half*>(q_bhd.data()),
+        static_cast<const __half*>(pool.storage().data()),
+        static_cast<const int32_t*>(block_tables_bm_i32.data()),
+        static_cast<const int32_t*>(positions_before_append_b_i32.data()),
+        static_cast<__half*>(output_bhd.data()), layer, config.total_blocks,
+        config.block_size, num_kv_heads, head_dim, num_q_heads, max_blocks,
+        1.0f / sqrtf(static_cast<float>(head_dim)));
+  }
   CUDA_KERNEL_CHECK();
 }
 
