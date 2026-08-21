@@ -51,8 +51,19 @@ __global__ void paged_gqa_decode_kernel(
     const __half* value = storage + (layer_block + 1) * plane_elements +
                           offset * token_stride + kv_head * head_dim;
     float partial = 0.0f;
-    for (std::size_t e = dim; e < head_dim; e += blockDim.x)
-      partial += __half2float(q[q_head * head_dim + e]) * __half2float(key[e]);
+    const __half* query_ptr = q + q_head * head_dim;
+    const __half2* query_vec = reinterpret_cast<const __half2*>(query_ptr);
+    const __half2* key_vec = reinterpret_cast<const __half2*>(key);
+    for (std::size_t pair = dim; pair * 2 + 1 < head_dim;
+         pair += blockDim.x) {
+      const float2 q_value = __half22float2(query_vec[pair]);
+      const float2 k_value = __half22float2(key_vec[pair]);
+      partial = fmaf(q_value.x, k_value.x, partial);
+      partial = fmaf(q_value.y, k_value.y, partial);
+    }
+    if (2 * dim + 1 == head_dim)
+      partial += __half2float(query_ptr[head_dim - 1]) *
+                 __half2float(key[head_dim - 1]);
     for (int offset = 16; offset > 0; offset >>= 1)
       partial += __shfl_down_sync(0xffffffff, partial, offset);
     const std::size_t warp = dim / 32;
@@ -114,8 +125,19 @@ __global__ void paged_gqa_decode_batch_kernel(
     const __half* value = storage + (layer_block + 1) * plane_elements +
                           offset * token_stride + kv_head * head_dim;
     float partial = 0.0f;
-    for (std::size_t e = dim; e < head_dim; e += blockDim.x)
-      partial += __half2float(q_row[q_head * head_dim + e]) * __half2float(key[e]);
+    const __half* query_ptr = q_row + q_head * head_dim;
+    const __half2* query_vec = reinterpret_cast<const __half2*>(query_ptr);
+    const __half2* key_vec = reinterpret_cast<const __half2*>(key);
+    for (std::size_t pair = dim; pair * 2 + 1 < head_dim;
+         pair += blockDim.x) {
+      const float2 q_value = __half22float2(query_vec[pair]);
+      const float2 k_value = __half22float2(key_vec[pair]);
+      partial = fmaf(q_value.x, k_value.x, partial);
+      partial = fmaf(q_value.y, k_value.y, partial);
+    }
+    if (2 * dim + 1 == head_dim)
+      partial += __half2float(query_ptr[head_dim - 1]) *
+                 __half2float(key[head_dim - 1]);
     for (int offset = 16; offset > 0; offset >>= 1)
       partial += __shfl_down_sync(0xffffffff, partial, offset);
     const std::size_t warp = dim / 32;
