@@ -7,6 +7,7 @@
 #include "ops_cuda.h"
 #include "qwen3_decode_workspace.h"
 #include "qwen3_padded_prefill.h"
+#include "decoder_runtime.h"
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -16,6 +17,9 @@
 #include <vector>
 
 namespace llm {
+
+struct PagedDecodeGraphState;
+struct PagedBatchDecodeGraphState;
 
 // Test-only deterministic fault injection for direct paged prefill. Disabled
 // by default and intentionally process-local; production callers never set it.
@@ -38,9 +42,10 @@ struct PagedDecodeMetadataUploadStats {
   size_t block_table_uploads = 0;
 };
 
-class Qwen3CudaModel {
+class Qwen3CudaModel : public DecoderRuntime {
  public:
   explicit Qwen3CudaModel(const std::filesystem::path& package_root);
+  ~Qwen3CudaModel() override;
 
   Tensor prefill_hidden_layers(const std::vector<int32_t>& token_ids,
                                const std::vector<int32_t>& position_ids,
@@ -69,13 +74,35 @@ class Qwen3CudaModel {
   Tensor decode_logits(int32_t next_input_id, Qwen3KvCache& cache) const;
   Tensor decode_logits_paged(int32_t next_input_id,
                              Qwen3PagedKvCache& cache) const;
+  void decode_logits_paged_into(int32_t next_input_id,
+                                Qwen3PagedKvCache& cache,
+                                Tensor& logits) const;
+  Tensor decode_logits_paged_graph(int32_t next_input_id,
+                                   Qwen3PagedKvCache& cache) const;
+  Tensor decode_logits_paged_flash_graph(int32_t next_input_id,
+                                         Qwen3PagedKvCache& cache) const;
+  void decode_logits_paged_flash_into(int32_t next_input_id,
+                                      Qwen3PagedKvCache& cache,
+                                      Tensor& logits) const;
   Tensor decode_logits_paged_batch(
+      const std::vector<int32_t>& next_input_ids,
+      const std::vector<Qwen3PagedKvCache*>& caches) const;
+  Tensor decode_logits_paged_flash_batch(
+      const std::vector<int32_t>& next_input_ids,
+      const std::vector<Qwen3PagedKvCache*>& caches) const;
+  Tensor decode_logits_paged_batch_graph(
+      const std::vector<int32_t>& next_input_ids,
+      const std::vector<Qwen3PagedKvCache*>& caches) const;
+  Tensor decode_logits_paged_flash_batch_graph(
       const std::vector<int32_t>& next_input_ids,
       const std::vector<Qwen3PagedKvCache*>& caches) const;
   Tensor decode_logits_batch_with_caches(
       const std::vector<int32_t>& next_input_ids,
       const std::vector<Qwen3KvCache*>& caches) const;
   Tensor decode_logits_variable_length_batch_with_caches(
+      const std::vector<int32_t>& next_input_ids,
+      const std::vector<Qwen3KvCache*>& caches) const;
+  Tensor decode_logits_variable_length_flash_batch_with_caches(
       const std::vector<int32_t>& next_input_ids,
       const std::vector<Qwen3KvCache*>& caches) const;
   GreedyGenerationResult generate_greedy(
@@ -110,17 +137,19 @@ class Qwen3CudaModel {
   }
 
  private:
-  Tensor token_embedding_;
-  Tensor final_norm_;
-  std::vector<Qwen3CudaLayerWeights> layers_;
   float rms_norm_eps_ = 0.0f;
   float rope_theta_ = 0.0f;
-  DecoderModelSpec model_spec_{};
-  size_t resident_weight_bytes_ = 0;
-  std::unique_ptr<DecodeWorkspace> decode_workspace_;
-  mutable std::unique_ptr<PagedDecodeMetadataWorkspace>
-      paged_decode_metadata_workspace_;
   mutable PagedDecodeMetadataUploadStats last_paged_decode_metadata_upload_stats_;
+  mutable std::unique_ptr<PagedDecodeGraphState> paged_decode_graph_;
+  mutable std::unique_ptr<PagedBatchDecodeGraphState> paged_batch_decode_graph_;
+
+  Tensor decode_logits_paged_graph_with_mode(
+      int32_t next_input_id, Qwen3PagedKvCache& cache,
+      CudaAttentionMode mode) const;
+  Tensor decode_logits_paged_batch_graph_with_mode(
+      const std::vector<int32_t>& next_input_ids,
+      const std::vector<Qwen3PagedKvCache*>& caches,
+      CudaAttentionMode mode) const;
 };
 
 }  // namespace llm

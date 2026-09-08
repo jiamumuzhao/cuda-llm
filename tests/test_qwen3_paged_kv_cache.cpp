@@ -75,7 +75,7 @@ int main() {
   try {
     PagedKvCachePool pool(config());
     expect_throw([&] { Qwen3PagedKvCache bad(pool, 0); }, "zero capacity");
-    expect_throw([&] { Qwen3PagedKvCache bad(pool, 33); }, "capacity above 32");
+    expect_throw([&] { Qwen3PagedKvCache bad(pool, 513); }, "capacity above 512");
     PagedKvCachePoolConfig wrong = config(); wrong.num_layers = 27;
     PagedKvCachePool wrong_pool(wrong);
     expect_throw([&] { Qwen3PagedKvCache bad(wrong_pool, 4); }, "wrong Qwen dimensions");

@@ -79,18 +79,21 @@ template<class T> __global__ void add_rms_normk(
     size_t rows, size_t hidden, float eps) {
   const size_t row = blockIdx.x;
   if (row >= rows) return;
-  __shared__ float inv;
+  __shared__ float sums[128];
   const unsigned tid = threadIdx.x;
-  if (tid == 0) {
-    double sum = 0.0;
-    for (size_t j = 0; j < hidden; ++j) {
-      const float value = rf(lhs[row * hidden + j]) + rf(rhs[row * hidden + j]);
-      residual[row * hidden + j] = wf<T>(value);
-      sum += double(value) * double(value);
-    }
-    inv = float(1.0 / sqrt(sum / double(hidden) + double(eps)));
+  float local = 0.0f;
+  for (size_t j = tid; j < hidden; j += blockDim.x) {
+    const float value = rf(lhs[row * hidden + j]) + rf(rhs[row * hidden + j]);
+    residual[row * hidden + j] = wf<T>(value);
+    local += value * value;
   }
+  sums[tid] = local;
   __syncthreads();
+  for (unsigned stride = 64; stride > 0; stride >>= 1) {
+    if (tid < stride) sums[tid] += sums[tid + stride];
+    __syncthreads();
+  }
+  const float inv = 1.0f / sqrtf(sums[0] / static_cast<float>(hidden) + eps);
   for (size_t j = tid; j < hidden; j += blockDim.x) {
     const float value = rf(residual[row * hidden + j]);
     normalized[row * hidden + j] = wf<T>(
@@ -113,17 +116,20 @@ template<class T> __global__ void rmsk(const T* x, const T* w, T* o,
                                        size_t rows, size_t h, float eps) {
   const size_t row = blockIdx.x;
   if (row >= rows) return;
-  __shared__ float inv;
+  __shared__ float sums[128];
   const unsigned tid = threadIdx.x;
-  if (tid == 0) {
-    double sum = 0.0;
-    for (size_t j = 0; j < h; ++j) {
-      const float value = rf(x[row * h + j]);
-      sum += double(value) * double(value);
-    }
-    inv = float(1.0 / sqrt(sum / double(h) + double(eps)));
+  float local = 0.0f;
+  for (size_t j = tid; j < h; j += blockDim.x) {
+    const float value = rf(x[row * h + j]);
+    local += value * value;
   }
+  sums[tid] = local;
   __syncthreads();
+  for (unsigned stride = 64; stride > 0; stride >>= 1) {
+    if (tid < stride) sums[tid] += sums[tid + stride];
+    __syncthreads();
+  }
+  const float inv = 1.0f / sqrtf(sums[0] / static_cast<float>(h) + eps);
   for (size_t j = tid; j < h; j += blockDim.x) {
     const float value = __fmul_rn(rf(x[row * h + j]), inv);
     o[row * h + j] = wf<T>(__fmul_rn(value, rf(w[j])));
@@ -669,7 +675,7 @@ static void linear_f16_fast_gemm(const Tensor& x,const Tensor& w,Tensor& o,size_
 void cuda_linear_out(const Tensor&x,const Tensor&w,Tensor&o,cudaStream_t stream){req(x,"cuda_linear");req(w,"cuda_linear");same_dtype(x,w,"cuda_linear");if(w.shape().size()!=2||x.shape().size()<2||x.shape().back()!=w.shape()[1])throw std::invalid_argument("cuda_linear: incompatible shapes");auto out_shape=x.shape();out_shape.back()=w.shape()[0];output_req(o,out_shape,x.dtype(),"cuda_linear");size_t tokens=x.numel()/x.shape().back(),in=w.shape()[1],out=w.shape()[0];Blas& b=linear_blas();CUDA_CHECK(cublasSetStream(b.h,stream));if(x.dtype()==DType::F32){float alpha=1,beta=0;CUDA_CHECK(cublasSgemm(b.h,CUBLAS_OP_T,CUBLAS_OP_N,int(out),int(tokens),int(in),&alpha,(const float*)w.data(),int(in),(const float*)x.data(),int(in),&beta,(float*)o.data(),int(out)));}else if(g_cuda_linear_mode==CudaLinearMode::kFastGemm&&tokens>=32&&x.shape().size()==2){linear_f16_fast_gemm(x,w,o,tokens,in,out);}else{size_t n=tokens*out;linear_f16_reference<<<(n+255)/256,256,0,stream>>>((const __half*)x.data(),(const __half*)w.data(),(__half*)o.data(),tokens,in,out);CUDA_KERNEL_CHECK();}}
 void cuda_prepare_graph_capture(){ (void)linear_blas(); }
 Tensor cuda_linear(const Tensor&x,const Tensor&w){req(x,"cuda_linear");req(w,"cuda_linear");same_dtype(x,w,"cuda_linear");if(w.shape().size()!=2||x.shape().size()<2||x.shape().back()!=w.shape()[1])throw std::invalid_argument("cuda_linear: incompatible shapes");auto out_shape=x.shape();out_shape.back()=w.shape()[0];Tensor o(x.dtype(),out_shape,DeviceType::CUDA);cuda_linear_out(x,w,o);return o;}
-void cuda_rms_norm_out(const Tensor&x,const Tensor&w,float eps,Tensor&o,cudaStream_t stream){req(x,"cuda_rms_norm");req(w,"cuda_rms_norm");same_dtype(x,w,"cuda_rms_norm");rank(w,1,"cuda_rms_norm");if(x.shape().back()!=w.shape()[0]||eps<=0)throw std::invalid_argument("cuda_rms_norm: incompatible shape/epsilon");output_req(o,x.shape(),x.dtype(),"cuda_rms_norm");size_t rows=x.numel()/x.shape().back();if(x.dtype()==DType::F32)rmsk<<<rows,128,0,stream>>>((float*)x.data(),(float*)w.data(),(float*)o.data(),rows,w.shape()[0],eps);else rmsk<<<rows,128,0,stream>>>((__half*)x.data(),( __half*)w.data(),(__half*)o.data(),rows,w.shape()[0],eps);CUDA_KERNEL_CHECK();}
+void cuda_rms_norm_out(const Tensor&x,const Tensor&w,float eps,Tensor&o,cudaStream_t stream){req(x,"cuda_rms_norm");req(w,"cuda_rms_norm");same_dtype(x,w,"cuda_rms_norm");rank(w,1,"cuda_rms_norm");if(x.shape().back()!=w.shape()[0]||eps<=0)throw std::invalid_argument("cuda_rms_norm: incompatible shape/epsilon");output_req(o,x.shape(),x.dtype(),"cuda_rms_norm");size_t rows=x.numel()/x.shape().back();if(x.dtype()==DType::F32)rmsk<<<(rows+127)/128,128,0,stream>>>((float*)x.data(),(float*)w.data(),(float*)o.data(),rows,w.shape()[0],eps);else rmsk<<<(rows+127)/128,128,0,stream>>>((__half*)x.data(),( __half*)w.data(),(__half*)o.data(),rows,w.shape()[0],eps);CUDA_KERNEL_CHECK();}
 Tensor cuda_rms_norm(const Tensor&x,const Tensor&w,float eps){req(x,"cuda_rms_norm");req(w,"cuda_rms_norm");same_dtype(x,w,"cuda_rms_norm");rank(w,1,"cuda_rms_norm");if(x.shape().back()!=w.shape()[0]||eps<=0)throw std::invalid_argument("cuda_rms_norm: incompatible shape/epsilon");Tensor o(x.dtype(),x.shape(),DeviceType::CUDA);cuda_rms_norm_out(x,w,eps,o);return o;}
 void cuda_add_out(const Tensor&a,const Tensor&b,Tensor&o,cudaStream_t stream){req(a,"cuda_add");req(b,"cuda_add");same_dtype(a,b,"cuda_add");if(a.shape()!=b.shape())throw std::invalid_argument("cuda_add: shapes must match");output_req(o,a.shape(),a.dtype(),"cuda_add");size_t n=a.numel();if(a.dtype()==DType::F32)addk<<<(n+255)/256,256,0,stream>>>((float*)a.data(),(float*)b.data(),(float*)o.data(),n);else addk<<<(n+255)/256,256,0,stream>>>((__half*)a.data(),(__half*)b.data(),(__half*)o.data(),n);CUDA_KERNEL_CHECK();}
 void cuda_add_rms_norm_out(const Tensor& lhs, const Tensor& rhs,

@@ -17,39 +17,6 @@
 #include <utility>
 
 namespace llm {
-
-struct PagedDecodeGraphState {
-  Qwen3PagedKvCache* cache = nullptr;
-  PagedKvCachePool* pool = nullptr;
-  std::size_t capacity = 0;
-  CudaAttentionMode attention_mode = CudaAttentionMode::kReference;
-  Tensor block_table;
-  Tensor logits;
-  cudaGraph_t graph = nullptr;
-  cudaGraphExec_t executable = nullptr;
-
-  ~PagedDecodeGraphState() noexcept {
-    if (executable) cudaGraphExecDestroy(executable);
-    if (graph) cudaGraphDestroy(graph);
-  }
-};
-
-struct PagedBatchDecodeGraphState {
-  std::vector<Qwen3PagedKvCache*> caches;
-  PagedKvCachePool* pool = nullptr;
-  std::vector<std::size_t> capacities;
-  CudaAttentionMode attention_mode = CudaAttentionMode::kReference;
-  Tensor block_tables;
-  Tensor logits;
-  cudaGraph_t graph = nullptr;
-  cudaGraphExec_t executable = nullptr;
-
-  ~PagedBatchDecodeGraphState() noexcept {
-    if (executable) cudaGraphExecDestroy(executable);
-    if (graph) cudaGraphDestroy(graph);
-  }
-};
-
 namespace {
 
 std::size_t g_paged_prefill_fault_layer = static_cast<std::size_t>(-1);
@@ -232,8 +199,6 @@ Qwen3CudaModel::Qwen3CudaModel(const std::filesystem::path& package_root)
   rope_theta_ = model_spec_.rope_theta;
 }
 
-Qwen3CudaModel::~Qwen3CudaModel() = default;
-
 Tensor Qwen3CudaModel::prefill_hidden_layers(
     const std::vector<int32_t>& token_ids,
     const std::vector<int32_t>& position_ids, size_t layer_count) const {
@@ -302,9 +267,6 @@ Tensor Qwen3CudaModel::prefill_logits_paged(
   // Preserve the established single-request API shape [S, vocab].  Use
   // packed prefill for long contexts because the legacy equal-length path is
   // intentionally capped at 32 tokens.
-  CudaLinearModeGuard fast_linear(
-      prompt_ids.size() > 32 ? CudaLinearMode::kFastGemm
-                             : CudaLinearMode::kReference);
   Tensor batched = prompt_ids.size() > 32
                         ? prefill_logits_paged_packed_batch({prompt_ids}, {&cache})
                         : prefill_logits_paged_batch({prompt_ids}, {&cache});
@@ -704,312 +666,6 @@ Tensor Qwen3CudaModel::decode_logits(int32_t next_input_id,
 
 Tensor Qwen3CudaModel::decode_logits_paged(int32_t next_input_id,
                                            Qwen3PagedKvCache& cache) const {
-  Tensor logits(DType::F16,
-                {1, static_cast<int64_t>(model_spec_.vocab_size)},
-                DeviceType::CUDA);
-  decode_logits_paged_into(next_input_id, cache, logits);
-  return logits;
-}
-
-Tensor Qwen3CudaModel::decode_logits_paged_graph(
-    int32_t next_input_id, Qwen3PagedKvCache& cache) const {
-  return decode_logits_paged_graph_with_mode(
-      next_input_id, cache, CudaAttentionMode::kReference);
-}
-
-Tensor Qwen3CudaModel::decode_logits_paged_flash_graph(
-    int32_t next_input_id, Qwen3PagedKvCache& cache) const {
-  return decode_logits_paged_graph_with_mode(
-      next_input_id, cache, CudaAttentionMode::kFlashOnline);
-}
-
-Tensor Qwen3CudaModel::decode_logits_paged_batch_graph(
-    const std::vector<int32_t>& next_input_ids,
-    const std::vector<Qwen3PagedKvCache*>& caches) const {
-  return decode_logits_paged_batch_graph_with_mode(
-      next_input_ids, caches, CudaAttentionMode::kReference);
-}
-
-Tensor Qwen3CudaModel::decode_logits_paged_flash_batch_graph(
-    const std::vector<int32_t>& next_input_ids,
-    const std::vector<Qwen3PagedKvCache*>& caches) const {
-  return decode_logits_paged_batch_graph_with_mode(
-      next_input_ids, caches, CudaAttentionMode::kFlashOnline);
-}
-
-Tensor Qwen3CudaModel::decode_logits_paged_graph_with_mode(
-    int32_t next_input_id, Qwen3PagedKvCache& cache,
-    CudaAttentionMode mode) const {
-  CudaAttentionModeGuard attention_mode(mode);
-  if (next_input_id < 0 || next_input_id >= 151936)
-    model_error("paged graph decode token out of range");
-  validate_paged_cache_pool(cache, model_spec_, "paged graph decode");
-  if (cache.in_decode_transaction() || cache.length() == 0 ||
-      cache.length() >= cache.capacity() ||
-      cache.length() >= static_cast<std::size_t>(INT32_MAX))
-    model_error("paged graph decode cache has invalid length/transaction state");
-  if (!decode_workspace_)
-    model_error("paged graph decode workspace is not initialized");
-
-  const bool compatible =
-      paged_decode_graph_ && paged_decode_graph_->cache == &cache &&
-      paged_decode_graph_->pool == &cache.pool() &&
-      paged_decode_graph_->capacity == cache.capacity() &&
-      paged_decode_graph_->attention_mode == mode;
-  if (!compatible) paged_decode_graph_.reset();
-
-  DecodeWorkspace& workspace = *decode_workspace_;
-  const int32_t position = static_cast<int32_t>(cache.length());
-  bool begun = false;
-  bool capture_started = false;
-  try {
-    cache.begin_decode();
-    begun = true;
-    if (!paged_decode_metadata_workspace_)
-      paged_decode_metadata_workspace_ =
-          std::make_unique<PagedDecodeMetadataWorkspace>(
-              cache.pool().config().block_size);
-    else if (paged_decode_metadata_workspace_->block_size() !=
-             cache.pool().config().block_size)
-      model_error("paged graph decode metadata workspace block_size mismatch");
-    Tensor positions = paged_decode_metadata_workspace_->positions_for_batch(1);
-    Tensor block_table = paged_decode_metadata_workspace_->block_table_row(
-        0, cache.block_table().size());
-    CUDA_CHECK(cudaMemcpy(positions.data(), &position, sizeof(position),
-                          cudaMemcpyHostToDevice));
-    cache.copy_block_table_to_cuda(block_table);
-    CUDA_CHECK(cudaMemcpy(workspace.token_ids.data(), &next_input_id,
-                          sizeof(next_input_id), cudaMemcpyHostToDevice));
-
-    if (!paged_decode_graph_) {
-      auto candidate = std::make_unique<PagedDecodeGraphState>();
-      candidate->cache = &cache;
-      candidate->pool = &cache.pool();
-      candidate->capacity = cache.capacity();
-      candidate->attention_mode = mode;
-      candidate->block_table = block_table;
-      candidate->logits = Tensor(
-          DType::F16, {1, static_cast<int64_t>(model_spec_.vocab_size)},
-          DeviceType::CUDA);
-      cuda_prepare_graph_capture();
-      CUDA_CHECK(cudaDeviceSynchronize());
-      CUDA_CHECK(cudaGetLastError());
-      CUDA_CHECK(cudaStreamBeginCapture(cudaStreamPerThread,
-                                        cudaStreamCaptureModeThreadLocal));
-      capture_started = true;
-      Tensor hidden_a = workspace.hidden_a.prefix_first_dim(1);
-      Tensor hidden_b = workspace.hidden_b.prefix_first_dim(1);
-      Tensor token_ids = workspace.token_ids.prefix_first_dim(1);
-      cuda_embedding_lookup_device_ids_out(token_embedding_, token_ids, hidden_a);
-      Tensor* current = &hidden_a;
-      Tensor* next = &hidden_b;
-      for (std::size_t layer = 0; layer < layers_.size(); ++layer) {
-        layer_executor().decode_paged_into(
-            *current, position, layers_[layer], cache, layer,
-            candidate->block_table, workspace, *next, rms_norm_eps_,
-            rope_theta_, cudaStreamPerThread);
-        std::swap(current, next);
-      }
-      Tensor final_hidden = workspace.final_norm.prefix_first_dim(1);
-      cuda_rms_norm_out(*current, final_norm_, rms_norm_eps_, final_hidden);
-      cuda_linear_out(final_hidden, token_embedding_, candidate->logits);
-      CUDA_CHECK(cudaStreamEndCapture(cudaStreamPerThread, &candidate->graph));
-      capture_started = false;
-      CUDA_CHECK(cudaGraphInstantiate(&candidate->executable, candidate->graph,
-                                     nullptr, nullptr, 0));
-      CUDA_CHECK(cudaGraphLaunch(candidate->executable, cudaStreamPerThread));
-      CUDA_CHECK(cudaDeviceSynchronize());
-      cache.commit_decode();
-      paged_decode_graph_ = std::move(candidate);
-      return paged_decode_graph_->logits;
-    }
-
-    CUDA_CHECK(cudaGraphLaunch(paged_decode_graph_->executable, cudaStreamPerThread));
-    CUDA_CHECK(cudaDeviceSynchronize());
-    // Graph replay executes the device-side KV writes but cannot execute the
-    // host transaction bookkeeping performed by the layer wrapper.
-    for (std::size_t layer = 0; layer < layers_.size(); ++layer)
-      cache.mark_layer_kv_device_written(layer);
-    cache.commit_decode();
-    return paged_decode_graph_->logits;
-  } catch (...) {
-    if (capture_started) {
-      cudaGraph_t discarded = nullptr;
-      cudaStreamEndCapture(cudaStreamPerThread, &discarded);
-      if (discarded) cudaGraphDestroy(discarded);
-      capture_started = false;
-    }
-    if (begun) {
-      try { cache.abort_decode(); } catch (...) {}
-    }
-    throw;
-  }
-}
-
-Tensor Qwen3CudaModel::decode_logits_paged_batch_graph_with_mode(
-    const std::vector<int32_t>& next_input_ids,
-    const std::vector<Qwen3PagedKvCache*>& caches,
-    CudaAttentionMode mode) const {
-  CudaAttentionModeGuard attention_mode(mode);
-  const std::size_t batch = next_input_ids.size();
-  if (batch != 2 && batch != 4)
-    model_error("paged batch graph decode batch size must be exactly 2 or 4");
-  if (caches.size() != batch)
-    model_error("paged batch graph decode token/cache count mismatch");
-  if (!decode_workspace_)
-    model_error("paged batch graph decode workspace is not initialized");
-
-  PagedKvCachePool* common_pool = nullptr;
-  std::vector<std::size_t> capacities;
-  capacities.reserve(batch);
-  std::vector<int32_t> positions(batch);
-  for (std::size_t b = 0; b < batch; ++b) {
-    if (next_input_ids[b] < 0 || next_input_ids[b] >= 151936)
-      model_error("paged batch graph decode token out of range at row=" +
-                  std::to_string(b));
-    if (!caches[b])
-      model_error("paged batch graph decode null cache at row=" +
-                  std::to_string(b));
-    if (std::find(caches.begin(), caches.begin() + b, caches[b]) !=
-        caches.begin() + b)
-      model_error("paged batch graph decode cache pointers must be unique");
-    if (!common_pool) common_pool = &caches[b]->pool();
-    if (&caches[b]->pool() != common_pool)
-      model_error("paged batch graph decode caches must share one pool");
-    validate_paged_cache_pool(*caches[b], model_spec_,
-                              "paged batch graph decode");
-    if (caches[b]->in_decode_transaction() || caches[b]->length() == 0 ||
-        caches[b]->length() >= caches[b]->capacity() ||
-        caches[b]->length() >= static_cast<std::size_t>(INT32_MAX))
-      model_error("paged batch graph decode cache row has invalid length");
-    positions[b] = static_cast<int32_t>(caches[b]->length());
-    capacities.push_back(caches[b]->capacity());
-  }
-
-  bool compatible = paged_batch_decode_graph_ &&
-      paged_batch_decode_graph_->pool == common_pool &&
-      paged_batch_decode_graph_->attention_mode == mode &&
-      paged_batch_decode_graph_->caches == caches &&
-      paged_batch_decode_graph_->capacities == capacities;
-  if (!compatible) paged_batch_decode_graph_.reset();
-
-  if (!paged_decode_metadata_workspace_)
-    paged_decode_metadata_workspace_ =
-        std::make_unique<PagedDecodeMetadataWorkspace>(
-            common_pool->config().block_size);
-  else if (paged_decode_metadata_workspace_->block_size() !=
-           common_pool->config().block_size)
-    model_error("paged batch graph decode metadata block_size mismatch");
-
-  std::vector<bool> begun(batch, false);
-  bool capture_started = false;
-  try {
-    for (std::size_t b = 0; b < batch; ++b) {
-      caches[b]->begin_decode();
-      begun[b] = true;
-    }
-    Tensor positions_cuda =
-        paged_decode_metadata_workspace_->positions_for_batch(batch);
-    Tensor block_tables_cuda =
-        paged_decode_metadata_workspace_->block_tables.prefix_first_dim(batch);
-    CUDA_CHECK(cudaMemcpy(positions_cuda.data(), positions.data(),
-                          batch * sizeof(int32_t), cudaMemcpyHostToDevice));
-    for (std::size_t b = 0; b < batch; ++b) {
-      Tensor row = paged_decode_metadata_workspace_->block_table_row(
-          b, caches[b]->block_table().size());
-      caches[b]->copy_block_table_to_cuda(row);
-    }
-    DecodeWorkspace& workspace = *decode_workspace_;
-    CUDA_CHECK(cudaMemcpy(workspace.token_ids.data(), next_input_ids.data(),
-                          batch * sizeof(int32_t), cudaMemcpyHostToDevice));
-
-    if (!paged_batch_decode_graph_) {
-      auto candidate = std::make_unique<PagedBatchDecodeGraphState>();
-      candidate->caches = caches;
-      candidate->pool = common_pool;
-      candidate->capacities = capacities;
-      candidate->attention_mode = mode;
-      candidate->block_tables = block_tables_cuda;
-      candidate->logits = Tensor(
-          DType::F16,
-          {static_cast<int64_t>(batch),
-           static_cast<int64_t>(model_spec_.vocab_size)},
-          DeviceType::CUDA);
-      cuda_prepare_graph_capture();
-      CUDA_CHECK(cudaDeviceSynchronize());
-      CUDA_CHECK(cudaGetLastError());
-      CUDA_CHECK(cudaStreamBeginCapture(cudaStreamPerThread,
-                                        cudaStreamCaptureModeThreadLocal));
-      capture_started = true;
-      Tensor hidden_a = workspace.hidden_a.prefix_first_dim(batch);
-      Tensor hidden_b = workspace.hidden_b.prefix_first_dim(batch);
-      Tensor token_ids = workspace.token_ids.prefix_first_dim(batch);
-      cuda_embedding_lookup_device_ids_out(token_embedding_, token_ids, hidden_a);
-      Tensor* current = &hidden_a;
-      Tensor* next = &hidden_b;
-      const std::vector<DecoderPagedKvCache*> generic_caches =
-          make_decoder_paged_caches(caches);
-      for (std::size_t layer = 0; layer < layers_.size(); ++layer) {
-        layer_executor().decode_paged_batch_into(
-            *current, positions_cuda, positions, layers_[layer],
-            generic_caches, layer, candidate->block_tables, workspace, *next,
-            rms_norm_eps_, rope_theta_);
-        std::swap(current, next);
-      }
-      Tensor final_hidden = workspace.final_norm.prefix_first_dim(batch);
-      cuda_rms_norm_out(*current, final_norm_, rms_norm_eps_, final_hidden);
-      cuda_linear_out(final_hidden, token_embedding_, candidate->logits);
-      CUDA_CHECK(cudaStreamEndCapture(cudaStreamPerThread, &candidate->graph));
-      capture_started = false;
-      CUDA_CHECK(cudaGraphInstantiate(&candidate->executable, candidate->graph,
-                                      nullptr, nullptr, 0));
-      CUDA_CHECK(cudaGraphLaunch(candidate->executable, cudaStreamPerThread));
-      CUDA_CHECK(cudaDeviceSynchronize());
-      for (Qwen3PagedKvCache* cache : caches) cache->commit_decode();
-      paged_batch_decode_graph_ = std::move(candidate);
-      return paged_batch_decode_graph_->logits;
-    }
-
-    CUDA_CHECK(cudaGraphLaunch(paged_batch_decode_graph_->executable,
-                               cudaStreamPerThread));
-    CUDA_CHECK(cudaDeviceSynchronize());
-    for (Qwen3PagedKvCache* cache : caches) {
-      for (std::size_t layer = 0; layer < layers_.size(); ++layer)
-        cache->mark_layer_kv_device_written(layer);
-      cache->commit_decode();
-    }
-    return paged_batch_decode_graph_->logits;
-  } catch (...) {
-    if (capture_started) {
-      cudaGraph_t discarded = nullptr;
-      cudaStreamEndCapture(cudaStreamPerThread, &discarded);
-      if (discarded) cudaGraphDestroy(discarded);
-    }
-    for (std::size_t b = 0; b < batch; ++b) {
-      if (begun[b]) {
-        try { caches[b]->abort_decode(); } catch (...) {}
-      }
-    }
-    throw;
-  }
-}
-
-void Qwen3CudaModel::decode_logits_paged_flash_into(
-    int32_t next_input_id, Qwen3PagedKvCache& cache, Tensor& logits) const {
-  CudaAttentionModeGuard flash_attention(CudaAttentionMode::kFlashOnline);
-  decode_logits_paged_into(next_input_id, cache, logits);
-}
-
-Tensor Qwen3CudaModel::decode_logits_paged_flash_batch(
-    const std::vector<int32_t>& next_input_ids,
-    const std::vector<Qwen3PagedKvCache*>& caches) const {
-  CudaAttentionModeGuard flash_attention(CudaAttentionMode::kFlashOnline);
-  return decode_logits_paged_batch(next_input_ids, caches);
-}
-
-void Qwen3CudaModel::decode_logits_paged_into(int32_t next_input_id,
-                                              Qwen3PagedKvCache& cache,
-                                              Tensor& logits) const {
   if (next_input_id < 0 || next_input_id >= 151936)
     model_error("paged decode token out of range");
   validate_paged_cache_pool(cache, model_spec_, "paged decode");
@@ -1068,10 +724,10 @@ void Qwen3CudaModel::decode_logits_paged_into(int32_t next_input_id,
     }
     Tensor final_hidden = workspace.final_norm.prefix_first_dim(1);
     cuda_rms_norm_out(*current, final_norm_, rms_norm_eps_, final_hidden);
-    cuda_linear_out(final_hidden, token_embedding_, logits);
+    Tensor logits = cuda_lm_head(final_hidden, token_embedding_);
     CUDA_CHECK(cudaDeviceSynchronize());
     cache.commit_decode();
-    return;
+    return logits;
   } catch (...) {
     if (begun) {
       try { cache.abort_decode(); } catch (...) {}
@@ -1306,13 +962,6 @@ Tensor Qwen3CudaModel::decode_logits_variable_length_batch_with_caches(
     }
     throw;
   }
-}
-
-Tensor Qwen3CudaModel::decode_logits_variable_length_flash_batch_with_caches(
-    const std::vector<int32_t>& next_input_ids,
-    const std::vector<Qwen3KvCache*>& caches) const {
-  CudaAttentionModeGuard flash_attention(CudaAttentionMode::kFlashOnline);
-  return decode_logits_variable_length_batch_with_caches(next_input_ids, caches);
 }
 
 GreedyGenerationResult Qwen3CudaModel::generate_greedy(

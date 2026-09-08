@@ -76,7 +76,7 @@ int main() {
       Tensor actual = model.decode_logits_paged_batch(ids, pp);
       const CudaAllocationStats stats = cuda_allocation_stats();
       expect(stats.cuda_malloc_calls <= 2, "steady-state allocation count > 2 for B=" + std::to_string(batch));
-      expect(model.paged_decode_metadata_workspace_bytes() == 48, "metadata workspace resident bytes changed");
+      expect(model.paged_decode_metadata_workspace_bytes() == 528, "metadata workspace resident bytes changed");
       for (size_t b = 0; b < batch; ++b) {
         Tensor reference = model.decode_logits_paged(ids[b], *refs[b]);
         compare_row(actual, b, reference);
@@ -84,7 +84,7 @@ int main() {
       std::cout << "paged_decode_workspace B=" << batch
                 << " cuda_malloc_calls=" << stats.cuda_malloc_calls
                 << " cuda_free_calls=" << stats.cuda_free_calls
-                << " metadata_resident_bytes=48 passed\n";
+                << " metadata_resident_bytes=528 passed\n";
       for (auto& c : paged) c->release_all();
       for (auto& c : refs) c->release_all();
       expect(pool.used_block_count() == 0, "workspace test leaked paged blocks");

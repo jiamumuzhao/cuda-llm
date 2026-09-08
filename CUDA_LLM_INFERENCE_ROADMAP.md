@@ -16,7 +16,7 @@
 最终建议形成如下层次：
 
 ```text
-OpenAI-compatible HTTP / C++ API
+研究/基准 CLI 与 C++ API
           |
 Request Manager + Continuous Batching Scheduler
           |
@@ -684,43 +684,37 @@ RTX 2080 Ti 上通过 `ops_cuda` 回归。完整模型 packed prefill 接线已�
 logits、KV ownership、zero padding ratio、pool 回收和后续 paged decode 均已回归
 验证，RTX 2080 Ti 测试通过。
 
-### [ ] Phase 8：prefix cache、Radix 思路和更聪明的调度
+### [ ] Phase 8：CUDA 执行优化与性能工程
 
-**目标**：吸收 SGLang 的 prefix reuse 思路，但保持实现轻量。
+**目标**：围绕现有 Qwen3 CUDA runtime，持续优化 kernel、内存访问、workspace
+复用和执行调度；不引入 prefix cache/Radix cache。
 
 路线：
 
-1. 先对完整 token prefix 做 hash，命中时共享只读 KV blocks；只共享已经完成 prefill 的完整 block。
-2. 用 hash map 管理 prefix，记录 block refcount、last-used time、token length。
-3. 在 hash 版本稳定后再升级为 radix tree，支持不同请求共享最长公共 token 前缀。
-4. 只在 prefix 完成 prefill 后加入 cache；正在写入的 block 不共享。
-5. 采用 LRU 或 token-budget eviction；把 prefix hit/miss、节省的 prefill token 数写入 trace。
+1. 优化 paged decode/prefill 的 warp mapping、shared-memory tiling 和 coalesced access。
+2. 固定并复用 decode/prefill metadata、temporary Tensor 和 CUDA workspace。
+3. 建立不同 batch、序列长度、KV block size 下的 kernel benchmark 与回归阈值。
+4. 评估 fused RMSNorm、QKV/MLP、attention 以及 CUDA Graph 的收益。
 
-这对应 vLLM 的 prefix caching 和 SGLang 的 RadixAttention，但第一版不需要实现完整的结构化程序执行或复杂缓存一致性。
+以端到端 tokens/s、TTFT、decode latency、显存占用和数值正确性作为验收指标。
 
-### [ ] Phase 9：服务化与 OpenAI-compatible API
+### [ ] Phase 9：运行时稳定性与基准体系
 
-**目标**：将已经稳定的 scheduler/runtime 暴露为可测试的服务，而不是把服务逻辑和量化 kernel 混在一起。
+**目标**：完善 CUDA runtime 的可观测性、错误恢复和可重复性能评估；不实现
+HTTP server、OpenAI-compatible API 或 streaming server。
 
 实现：
 
-- `/v1/completions`、`/v1/chat/completions`、SSE streaming、health check。
-- 请求取消、超时、最大 token、stop string、backpressure 和优雅退出。
-- 服务层不直接操作 CUDA tensor，只通过 C++ runtime API 提交/消费 token。
-- 为每个 request 记录 queue、prefill、decode、cache hit/miss 和错误原因。
+- 完善 CLI/C++ API、kernel timing、allocation 统计、TTFT、decode latency 和 CSV 报告。
+- 为每个 benchmark case 记录 batch shape、cache 配置、kernel launch 次数和错误原因。
+- 将 correctness test 与性能回归阈值绑定，避免优化引入静默数值退化。
 
-**验收**：CLI 与 HTTP 结果一致；流式输出可中途取消；服务重载和 OOM 行为明确；压测报告包含 TTFT、P50/P99 和 tokens/s。
+**验收**：性能报告可重复生成；关键 CUDA 路径有正确性、显存和延迟回归保护。
 
-### [ ] Phase 10：量化与性能增强
+### [ ] Phase 10：硬件相关 CUDA 优化
 
-建议顺序：
-
-1. 权重 FP16/BF16 baseline。
-2. W8A16 或 INT8 weight-only，使用 dequant + GEMM 或 CUTLASS kernel。
-3. INT4 GPTQ/AWQ/GGUF 兼容格式之一；不要同时实现多个格式。
-4. KV cache FP8（必须有误差和长上下文测试）。
-
-量化验收不能只看 tokens/s：至少报告 perplexity/任务集、logits cosine similarity、首 token 和长上下文退化。
+本项目当前不纳入量化、W8A16、INT8、FP8 或 dequant-GEMM；优先保持 FP16
+路径的正确性和性能基线。后续如改变范围，应单独建立量化路线和验收标准。
 
 ### [ ] Phase 11：扩展模型、多卡和 speculative decoding
 
@@ -813,12 +807,11 @@ kv_head = q_head / (num_attention_heads / num_key_value_heads)
 | M3 | contiguous KV + 静态 batch | 基础批处理 |
 | M4 | 简单 continuous batching | 调度原型 |
 | M5 | Paged KV + paged continuous batching | 推理核心 |
-| M6 | Prefix cache / Radix 思路 | 高复用 runtime |
-| M7 | OpenAI-compatible API 与 streaming | 可用 server |
-| M8 | INT8/INT4、FP8 KV、CUDA Graph | 工程版本 |
-| M9 | 多模型、多卡、speculative decoding | 扩展版本 |
+| M6 | CUDA kernel/workspace 优化 | 性能基线 |
+| M7 | CUDA Graph 与硬件相关优化评估 | 工程版本 |
+| M8 | 多模型、多卡、speculative decoding | 扩展版本 |
 
-个人开发时，M0-M2 是最关键的正确性阶段；M3-M6 开始体现与 llama/vLLM/SGLang 相近的 runtime 思想；M7 以后进入服务工程和性能竞争。
+个人开发时，M0-M2 是最关键的正确性阶段；M3-M8 聚焦 CUDA runtime、cache、调度和性能工程。
 
 ## 10. 具体的第一周执行清单
 
@@ -846,9 +839,9 @@ Qwen3 的 GQA、Q/K RMSNorm、RoPE、权重 tied、chat template 都容易出现
 
 Scheduler、block manager、model runner 一起写会导致无法测试。建议 scheduler 先输出纯 host batch metadata，paged attention 先接受固定 block table，逐步连接。
 
-### 风险四：量化掩盖基础问题
+### 风险四：优化掩盖基础问题
 
-先 FP16 结果和性能稳定，再加一种量化格式。BF16/FP8 是否启用取决于硬件；量化格式、scale layout、group size 和 kernel 不应同时变化。
+先固定 FP16 结果和性能基线，再做 kernel fusion、memory layout 或 CUDA Graph 优化；每次优化都必须保留数值和显存回归测试。
 
 ### 风险五：对标指标不公平
 
@@ -870,4 +863,4 @@ Scheduler、block manager、model runner 一起写会导致无法测试。建议
 
 ## 最终建议
 
-如果重点是“理解推理核心思想和算法”，采用 **从零实现 M0-M6 + 对照 llama.cpp/tiny-vllm**；如果重点是“尽快得到能服务的产品”，采用 **llama.cpp/ggml 作为基础设施，自己实现 Qwen3 适配、调度实验和 paged/prefix cache**。两条路线最终可以合并：从零版本作为可读的实验场，成熟底座作为性能和兼容性验证场。
+项目定位是 **从零实现 CUDA 推理 runtime，并以 kernel、KV cache、调度和性能基准为主线**；服务化、prefix cache 和量化不属于当前范围。

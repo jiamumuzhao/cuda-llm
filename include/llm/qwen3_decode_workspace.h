@@ -72,6 +72,8 @@ struct DecodeWorkspace {
   Tensor q_linear;
   Tensor k_linear;
   Tensor v_linear;
+  Tensor q_norm;
+  Tensor k_norm;
   Tensor attention;
   Tensor o_proj;
   Tensor attention_residual;
@@ -90,6 +92,7 @@ struct DecodeWorkspace {
   size_t resident_bytes() const {
     return hidden_a.nbytes() + hidden_b.nbytes() + input_norm.nbytes() +
            q_linear.nbytes() + k_linear.nbytes() + v_linear.nbytes() +
+           q_norm.nbytes() + k_norm.nbytes() +
            attention.nbytes() + o_proj.nbytes() + attention_residual.nbytes() +
            post_attention_norm.nbytes() + gate.nbytes() + up.nbytes() +
            down.nbytes() + final_norm.nbytes() + position_ids.nbytes() +

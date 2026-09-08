@@ -2,7 +2,6 @@
 #include "tensor.h"
 #include "attention_config.h"
 #include <cstddef>
-#include <cuda_runtime_api.h>
 #include <cstdint>
 #include <vector>
 namespace llm {
@@ -16,8 +15,6 @@ struct VariableDecodeTransferStats {
   uint64_t d2h_validation_copies = 0;
 };
 enum class CudaLinearMode { kReference, kFastGemm };
-enum class CudaAttentionMode { kReference, kFlashOnline };
-extern thread_local CudaAttentionMode g_cuda_attention_mode;
 class CudaLinearModeGuard {
  public:
   explicit CudaLinearModeGuard(CudaLinearMode mode);
@@ -26,15 +23,6 @@ class CudaLinearModeGuard {
   CudaLinearModeGuard& operator=(const CudaLinearModeGuard&) = delete;
  private:
   CudaLinearMode previous_;
-};
-class CudaAttentionModeGuard {
- public:
-  explicit CudaAttentionModeGuard(CudaAttentionMode mode);
-  ~CudaAttentionModeGuard();
-  CudaAttentionModeGuard(const CudaAttentionModeGuard&) = delete;
-  CudaAttentionModeGuard& operator=(const CudaAttentionModeGuard&) = delete;
- private:
-  CudaAttentionMode previous_;
 };
 ValidLengthTransferStats valid_length_transfer_stats();
 void reset_valid_length_transfer_stats();
@@ -106,29 +94,21 @@ Tensor cuda_gqa_decode_attention(const Tensor& q_one, const Tensor& k_cache,
 Tensor cuda_gqa_decode_attention_batched(
     const Tensor& q_bhd, const std::vector<const Tensor*>& key_caches,
     const std::vector<const Tensor*>& value_caches, size_t cache_length);
-void cuda_linear_out(const Tensor& input, const Tensor& weight, Tensor& output,
-                     cudaStream_t stream = 0);
-// Initializes graph-sensitive CUDA library state before stream capture.
-void cuda_prepare_graph_capture();
+void cuda_linear_out(const Tensor& input, const Tensor& weight, Tensor& output);
 void cuda_rms_norm_out(const Tensor& input, const Tensor& weight, float eps,
-                       Tensor& output, cudaStream_t stream = 0);
-void cuda_add_out(const Tensor& lhs, const Tensor& rhs, Tensor& output,
-                  cudaStream_t stream = 0);
+                       Tensor& output);
+void cuda_add_out(const Tensor& lhs, const Tensor& rhs, Tensor& output);
 void cuda_add_rms_norm_out(const Tensor& lhs, const Tensor& rhs,
                            const Tensor& weight, float eps,
-                           Tensor& residual, Tensor& normalized,
-                           cudaStream_t stream = 0);
-void cuda_swiglu_out(const Tensor& gate, const Tensor& up, Tensor& output,
-                     cudaStream_t stream = 0);
+                           Tensor& residual, Tensor& normalized);
+void cuda_swiglu_out(const Tensor& gate, const Tensor& up, Tensor& output);
 void cuda_rope_batched_out(const Tensor& input,
                            const Tensor& positions_device, float theta,
                            Tensor& output);
 void cuda_rope_batched_positions_out(const Tensor& input,
                                      const Tensor& positions_device,
                                      float theta, Tensor& output);
-void cuda_rope_token_positions_out(const Tensor& input, const Tensor& positions_device,
-                                   float theta, Tensor& output,
-                                   cudaStream_t stream = 0);
+void cuda_rope_token_positions_out(const Tensor& input, const Tensor& positions_device, float theta, Tensor& output);
 void cuda_gqa_decode_attention_batched_out(
     const Tensor& q_bhd, const std::vector<const Tensor*>& key_caches,
     const std::vector<const Tensor*>& value_caches, size_t cache_length,
@@ -148,9 +128,6 @@ void cuda_gqa_decode_attention_batched_variable_lengths_out(
 void cuda_embedding_lookup_out(const Tensor& embedding_weight,
                                const std::vector<int32_t>& token_ids,
                                Tensor& token_ids_device, Tensor& output);
-void cuda_embedding_lookup_device_ids_out(const Tensor& embedding_weight,
-                                          const Tensor& token_ids_device,
-                                          Tensor& output);
 int32_t cuda_argmax_last_row(const Tensor& logits_cuda);
 Tensor cuda_embedding_lookup(const Tensor& embedding_weight_cuda,
                              const std::vector<int32_t>& token_ids);
@@ -170,21 +147,6 @@ void cuda_paged_gqa_attention_decode_out_unchecked(
     const Tensor& device_block_table_i32, std::size_t kv_length,
     std::size_t num_q_heads, std::size_t num_kv_heads, std::size_t head_dim,
     Tensor& output);
-void cuda_paged_gqa_attention_decode_out_device_length(
-    const Tensor& q, const PagedKvCachePool& pool, std::size_t layer,
-    const Tensor& device_block_table_i32, const Tensor& device_cache_length_i32,
-    std::size_t num_q_heads, std::size_t num_kv_heads, std::size_t head_dim,
-    Tensor& output, cudaStream_t stream = 0);
-void cuda_paged_kv_write_decode(
-    const Tensor& key, const Tensor& value, PagedKvCachePool& pool,
-    std::size_t layer, const Tensor& device_block_table_i32,
-    const Tensor& device_cache_length_i32, std::size_t num_kv_heads,
-    std::size_t head_dim, cudaStream_t stream = 0);
-void cuda_paged_kv_write_decode_batch(
-    const Tensor& key_bhd, const Tensor& value_bhd, PagedKvCachePool& pool,
-    std::size_t layer, const Tensor& block_tables_bm_i32,
-    const Tensor& positions_before_append_b_i32, std::size_t num_kv_heads,
-    std::size_t head_dim);
 Tensor cuda_paged_gqa_attention_decode(
     const Tensor& q, const PagedKvCachePool& pool, std::size_t layer,
     const Tensor& device_block_table_i32, std::size_t kv_length,

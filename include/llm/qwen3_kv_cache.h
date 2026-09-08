@@ -1,12 +1,13 @@
 #pragma once
 
+#include "decoder_kv_cache.h"
 #include "tensor.h"
 #include <cstddef>
 #include <vector>
 
 namespace llm {
 
-class Qwen3KvCache {
+class Qwen3KvCache final : public DecoderKvCache {
  public:
   Qwen3KvCache(size_t max_seq_len, size_t num_layers = 28,
                size_t num_kv_heads = 8, size_t head_dim = 128);

@@ -1,9 +1,11 @@
 #pragma once
 
+#include "llm/decoder_kv_cache.h"
 #include "llm/paged_kv_cache_pool.h"
 #include "llm/qwen3_kv_cache.h"
 
 #include <cstddef>
+#include <cuda_runtime_api.h>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -12,7 +14,7 @@ namespace llm {
 
 // Correctness/transition wrapper for the Phase 6 paged pool. The pool must
 // outlive this cache; this object is not copyable, movable, or thread-safe.
-class Qwen3PagedKvCache {
+class Qwen3PagedKvCache final : public DecoderPagedKvCache {
  public:
   Qwen3PagedKvCache(PagedKvCachePool& pool, std::size_t max_seq_len);
   ~Qwen3PagedKvCache() noexcept = default;
@@ -39,6 +41,17 @@ class Qwen3PagedKvCache {
 
   void begin_decode();
   void append_layer_kv(std::size_t layer, const Tensor& key, const Tensor& value);
+  void append_layer_kv_device(std::size_t layer, const Tensor& key,
+                              const Tensor& value,
+                              const Tensor& device_block_table_i32,
+                              cudaStream_t stream = 0);
+  void mark_layer_kv_device_written(std::size_t layer);
+  const Tensor& device_cache_length_i32() const noexcept {
+    return device_cache_length_i32_;
+  }
+  const Tensor& device_position_i32() const noexcept {
+    return device_position_i32_;
+  }
   void commit_decode();
   void abort_decode() noexcept;
   void begin_prefill(std::size_t token_count);
@@ -98,6 +111,8 @@ class Qwen3PagedKvCache {
   std::size_t begin_length_ = 0;
   std::size_t begin_block_count_ = 0;
   std::size_t prefill_token_count_ = 0;
+  Tensor device_cache_length_i32_;
+  Tensor device_position_i32_;
 };
 
 }  // namespace llm

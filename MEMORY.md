@@ -94,3 +94,15 @@
 - 只记录对后续开发有用的事实，不记录敏感凭据或完整系统提示。
 - 源码变更应记录文件路径、行为变化和验证命令。
 - 测试失败、环境限制和未完成事项也要记录，避免后续重复排查。
+
+### 2026-08-22：项目范围确认
+
+用户明确项目重点是 CUDA 底层优化和可验证的推理 runtime，不涉及：
+
+- prefix cache / Radix cache；
+- streaming 和 OpenAI-compatible HTTP API；
+- 量化（W8A16、INT8、FP8 等）。
+
+后续重点应放在 FP16 CUDA kernel、paged/contiguous KV cache、prefill/decode
+执行路径、batch scheduler、workspace/内存复用、CUDA Graph 评估、kernel benchmark
+和正确性回归。路线图已同步调整 Phase 8-10 的描述。

@@ -242,8 +242,7 @@ void qwen3_decoder_layer_cuda_decode_fp16_paged_into(
     const Tensor& hidden_one_cuda_f16, int32_t position_id,
     const Qwen3CudaLayerWeights& w, Qwen3PagedKvCache& cache,
     size_t layer_index, const Tensor& device_block_table_i32,
-    DecodeWorkspace& ws, Tensor& output, float eps, float theta,
-    cudaStream_t stream) {
+    DecodeWorkspace& ws, Tensor& output, float eps, float theta) {
   const char* function = "qwen3_decoder_layer_cuda_decode_fp16_paged_into";
   const auto shape = infer_layer_shape(w, function);
   if (position_id < 0) invalid(function, "position_id must be non-negative");
@@ -280,33 +279,33 @@ void qwen3_decoder_layer_cuda_decode_fp16_paged_into(
       {1, static_cast<int64_t>(shape.q_heads), static_cast<int64_t>(shape.head_dim)});
   Tensor k_norm = ws.k_norm.prefix_first_dim(1).reshape(
       {1, static_cast<int64_t>(shape.kv_heads), static_cast<int64_t>(shape.head_dim)});
-  const Tensor& position_ids = cache.device_position_i32();
+  Tensor position_ids = ws.variable_position_ids.prefix_first_dim(1);
+  CUDA_CHECK(cudaMemcpy(position_ids.data(), &position_id, sizeof(position_id),
+                        cudaMemcpyHostToDevice));
 
-  cuda_rms_norm_out(hidden_one_cuda_f16, w.input_norm, eps, input_norm, stream);
-  cuda_linear_out(input_norm, w.q_proj, q_linear, stream);
-  cuda_linear_out(input_norm, w.k_proj, k_linear, stream);
-  cuda_linear_out(input_norm, w.v_proj, v_linear, stream);
-  cuda_rms_norm_out(q, w.q_norm, eps, q_norm, stream);
-  cuda_rms_norm_out(k, w.k_norm, eps, k_norm, stream);
-  cuda_rope_token_positions_out(q_norm, position_ids, theta, q, stream);
-  cuda_rope_token_positions_out(k_norm, position_ids, theta, k, stream);
+  cuda_rms_norm_out(hidden_one_cuda_f16, w.input_norm, eps, input_norm);
+  cuda_linear_out(input_norm, w.q_proj, q_linear);
+  cuda_linear_out(input_norm, w.k_proj, k_linear);
+  cuda_linear_out(input_norm, w.v_proj, v_linear);
+  cuda_rms_norm_out(q, w.q_norm, eps, q_norm);
+  cuda_rms_norm_out(k, w.k_norm, eps, k_norm);
+  cuda_rope_token_positions_out(q_norm, position_ids, theta, q);
+  cuda_rope_token_positions_out(k_norm, position_ids, theta, k);
 
-  cache.append_layer_kv_device(
+  cache.append_layer_kv(
       layer_index,
       k.reshape({static_cast<int64_t>(shape.kv_heads),
                  static_cast<int64_t>(shape.head_dim)}),
       v.reshape({static_cast<int64_t>(shape.kv_heads),
-                 static_cast<int64_t>(shape.head_dim)}),
-      device_block_table_i32, stream);
+                 static_cast<int64_t>(shape.head_dim)}));
 
   Tensor attention = ws.attention.prefix_first_dim(1).reshape(
       {static_cast<int64_t>(shape.q_heads), static_cast<int64_t>(shape.head_dim)});
-  cuda_paged_gqa_attention_decode_out_device_length(
+  cuda_paged_gqa_attention_decode_out(
       q.reshape({static_cast<int64_t>(shape.q_heads),
                  static_cast<int64_t>(shape.head_dim)}),
-      cache.pool(), layer_index, device_block_table_i32,
-      cache.device_cache_length_i32(), shape.q_heads, shape.kv_heads,
-      shape.head_dim, attention, stream);
+      cache.pool(), layer_index, device_block_table_i32, cache.length() + 1,
+      shape.q_heads, shape.kv_heads, shape.head_dim, attention);
   Tensor attention_flat = attention.reshape(
       {1, static_cast<int64_t>(shape.q_dim())});
   Tensor o_proj = ws.o_proj.prefix_first_dim(1);
@@ -315,14 +314,14 @@ void qwen3_decoder_layer_cuda_decode_fp16_paged_into(
   Tensor gate = ws.gate.prefix_first_dim(1);
   Tensor up = ws.up.prefix_first_dim(1);
   Tensor down = ws.down.prefix_first_dim(1);
-  cuda_linear_out(attention_flat, w.o_proj, o_proj, stream);
-  cuda_add_rms_norm_out(hidden_one_cuda_f16, o_proj, w.post_attention_norm,
-                        eps, attention_residual, post_norm, stream);
-  cuda_linear_out(post_norm, w.gate_proj, gate, stream);
-  cuda_linear_out(post_norm, w.up_proj, up, stream);
-  cuda_swiglu_out(gate, up, gate, stream);
-  cuda_linear_out(gate, w.down_proj, down, stream);
-  cuda_add_out(attention_residual, down, output, stream);
+  cuda_linear_out(attention_flat, w.o_proj, o_proj);
+  cuda_add_out(hidden_one_cuda_f16, o_proj, attention_residual);
+  cuda_rms_norm_out(attention_residual, w.post_attention_norm, eps, post_norm);
+  cuda_linear_out(post_norm, w.gate_proj, gate);
+  cuda_linear_out(post_norm, w.up_proj, up);
+  cuda_swiglu_out(gate, up, gate);
+  cuda_linear_out(gate, w.down_proj, down);
+  cuda_add_out(attention_residual, down, output);
 }
 
 void qwen3_set_paged_batch_fault_for_testing(size_t batch_row,
@@ -399,12 +398,10 @@ Tensor qwen3_decoder_layer_cuda_decode_fp16_paged_batch(
   for (size_t b = 0; b < batch; ++b) {
     if (g_paged_batch_fault_row == b && g_paged_batch_fault_layer == layer_index)
       throw std::runtime_error("paged batch injected fault");
+    Tensor k_row = k_rope.slice_first_dim(b, 1).reshape({static_cast<int64_t>(shape.kv_heads), static_cast<int64_t>(shape.head_dim)});
+    Tensor v_row = v_linear.slice_first_dim(b, 1).reshape({static_cast<int64_t>(shape.kv_heads), static_cast<int64_t>(shape.head_dim)});
+    caches[b]->append_layer_kv(layer_index, k_row, v_row);
   }
-  cuda_paged_kv_write_decode_batch(
-      k_rope, v_linear, caches[0]->pool(), layer_index, block_tables_bm_i32,
-      positions_cuda, shape.kv_heads, shape.head_dim);
-  for (Qwen3PagedKvCache* cache : caches)
-    cache->mark_layer_kv_device_written(layer_index);
   cuda_paged_gqa_attention_decode_batch_out(
       q_rope, caches[0]->pool(), layer_index, block_tables_bm_i32,
       positions_cuda,
@@ -482,12 +479,10 @@ void qwen3_decoder_layer_cuda_decode_fp16_paged_batch_into(
   for (size_t b = 0; b < batch; ++b) {
     if (g_paged_batch_fault_row == b && g_paged_batch_fault_layer == layer_index)
       throw std::runtime_error("paged batch injected fault");
+    Tensor k_row = k.slice_first_dim(b, 1).reshape({static_cast<int64_t>(shape.kv_heads), static_cast<int64_t>(shape.head_dim)});
+    Tensor v_row = v.slice_first_dim(b, 1).reshape({static_cast<int64_t>(shape.kv_heads), static_cast<int64_t>(shape.head_dim)});
+    caches[b]->append_layer_kv(layer_index, k_row, v_row);
   }
-  cuda_paged_kv_write_decode_batch(
-      k, v, caches[0]->pool(), layer_index, block_tables_bm_i32,
-      positions_cuda, shape.kv_heads, shape.head_dim);
-  for (Qwen3PagedKvCache* cache : caches)
-    cache->mark_layer_kv_device_written(layer_index);
   Tensor attention = ws.attention.prefix_first_dim(batch).reshape({static_cast<int64_t>(batch), static_cast<int64_t>(shape.q_heads), static_cast<int64_t>(shape.head_dim)});
   cuda_paged_gqa_attention_decode_batch_out(
       q, caches[0]->pool(), layer_index, block_tables_bm_i32,
@@ -502,8 +497,8 @@ void qwen3_decoder_layer_cuda_decode_fp16_paged_batch_into(
   Tensor up = ws.up.prefix_first_dim(batch);
   Tensor down = ws.down.prefix_first_dim(batch);
   cuda_linear_out(attention_flat, w.o_proj, o_proj);
-  cuda_add_rms_norm_out(hidden_bh, o_proj, w.post_attention_norm, eps,
-                        attention_residual, post_norm);
+  cuda_add_out(hidden_bh, o_proj, attention_residual);
+  cuda_rms_norm_out(attention_residual, w.post_attention_norm, eps, post_norm);
   cuda_linear_out(post_norm, w.gate_proj, gate);
   cuda_linear_out(post_norm, w.up_proj, up);
   cuda_swiglu_out(gate, up, gate);
@@ -724,8 +719,8 @@ void qwen3_decoder_layer_cuda_decode_fp16_batch_into(
   Tensor up = ws.up.prefix_first_dim(batch);
   Tensor down = ws.down.prefix_first_dim(batch);
   cuda_linear_out(attention_flat, w.o_proj, o_proj);
-  cuda_add_rms_norm_out(hidden_bh, o_proj, w.post_attention_norm, eps,
-                        attention_residual, post_norm);
+  cuda_add_out(hidden_bh, o_proj, attention_residual);
+  cuda_rms_norm_out(attention_residual, w.post_attention_norm, eps, post_norm);
   cuda_linear_out(post_norm, w.gate_proj, gate);
   cuda_linear_out(post_norm, w.up_proj, up);
   cuda_swiglu_out(gate, up, gate);
@@ -818,8 +813,8 @@ void qwen3_decoder_layer_cuda_decode_fp16_batch_variable_into(
   Tensor up = ws.up.prefix_first_dim(batch);
   Tensor down = ws.down.prefix_first_dim(batch);
   cuda_linear_out(attention_flat, w.o_proj, o_proj);
-  cuda_add_rms_norm_out(hidden_bh, o_proj, w.post_attention_norm, eps,
-                        attention_residual, post_norm);
+  cuda_add_out(hidden_bh, o_proj, attention_residual);
+  cuda_rms_norm_out(attention_residual, w.post_attention_norm, eps, post_norm);
   cuda_linear_out(post_norm, w.gate_proj, gate);
   cuda_linear_out(post_norm, w.up_proj, up);
   cuda_swiglu_out(gate, up, gate);

@@ -122,8 +122,8 @@ static void run_case(Qwen3CudaModel& model, const std::vector<size_t>& lengths,
     Tensor actual=model.decode_logits_paged_batch(ids,bp);
     const std::uint64_t batch_attention_launches =
         cuda_paged_gqa_attention_decode_batch_launch_count();
-    expect(batch_attention_launches == 28,
-           "paged batch layer must launch exactly one batch attention per layer");
+    expect(batch_attention_launches == (n == 1 ? 0 : 28),
+           "paged batch layer launch count does not match the B=1/B>1 dispatch");
     const CudaAllocationStats decode_allocations = cuda_allocation_stats();
     expect(decode_allocations.cuda_malloc_calls <= 2,
            "steady-state paged decode allocated more than two CUDA tensors");
@@ -185,7 +185,7 @@ int main(){
     warm_cache.seed_from_contiguous_cache(warm_source);
     Tensor warmup_logits = model.decode_logits_paged(901, warm_cache);
     const size_t warmup_workspace_bytes = model.paged_decode_metadata_workspace_bytes();
-    expect(warmup_workspace_bytes == 48, "paged metadata workspace warmup bytes");
+    expect(warmup_workspace_bytes == 528, "paged metadata workspace warmup bytes");
     Tensor steady_logits = model.decode_logits_paged(902, warm_cache);
     const PagedDecodeMetadataUploadStats single_metadata =
         model.last_paged_decode_metadata_upload_stats();
@@ -204,9 +204,9 @@ int main(){
               << " resident_bytes=" << warmup_workspace_bytes << "\n";
     warm_cache.release_all();
     run_case(model,{4,6},1); run_case(model,{3,4,6,8},1); run_case(model,{4},3); run_case(model,{15,16},3);
-    expect(model.paged_decode_metadata_workspace_bytes() == 48,
-           "block_size=16 metadata workspace resident bytes must be 48");
-    std::cout << "paged_decode_metadata_workspace=enabled resident_bytes=48 "
+    expect(model.paged_decode_metadata_workspace_bytes() == 528,
+           "block_size=16 metadata workspace resident bytes must be 528");
+    std::cout << "paged_decode_metadata_workspace=enabled resident_bytes=528 "
                  "(positions[4] + block_tables[4,2]); metadata allocations are 0 "
                  "after lazy initialization; layer temporary allocations remain measured separately\n";
 

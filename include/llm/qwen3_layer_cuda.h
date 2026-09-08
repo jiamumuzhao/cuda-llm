@@ -2,6 +2,8 @@
 
 #include "qwen3_layer.h"
 #include "qwen3_decode_workspace.h"
+#include "decoder_layer_weights.h"
+#include <cuda_runtime_api.h>
 
 namespace llm {
 
@@ -9,19 +11,7 @@ class Qwen3KvCache;
 class Qwen3PagedKvCache;
 
 
-struct Qwen3CudaLayerWeights {
-  Tensor input_norm;
-  Tensor q_proj;
-  Tensor k_proj;
-  Tensor v_proj;
-  Tensor q_norm;
-  Tensor k_norm;
-  Tensor o_proj;
-  Tensor post_attention_norm;
-  Tensor gate_proj;
-  Tensor up_proj;
-  Tensor down_proj;
-};
+using Qwen3CudaLayerWeights = DecoderLayerWeights;
 
 struct Qwen3BatchLayerTrace {
   Tensor k_rope;
@@ -64,6 +54,13 @@ Tensor qwen3_decoder_layer_cuda_decode_fp16_paged(
     const Qwen3CudaLayerWeights& weights, Qwen3PagedKvCache& cache,
     size_t layer_index, const Tensor& device_block_table_i32,
     float rms_norm_eps, float rope_theta);
+
+void qwen3_decoder_layer_cuda_decode_fp16_paged_into(
+    const Tensor& hidden_one_cuda_f16, int32_t position_id,
+    const Qwen3CudaLayerWeights& weights, Qwen3PagedKvCache& cache,
+    size_t layer_index, const Tensor& device_block_table_i32,
+    DecodeWorkspace& workspace, Tensor& output, float rms_norm_eps,
+    float rope_theta, cudaStream_t stream = 0);
 
 Tensor qwen3_decoder_layer_cuda_decode_fp16_paged_batch(
     const Tensor& hidden_bh, const Tensor& positions_cuda,

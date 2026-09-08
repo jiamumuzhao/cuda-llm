@@ -24,7 +24,9 @@ void Qwen3PagedKvCache::require_qwen3_pool() const {
 Qwen3PagedKvCache::Qwen3PagedKvCache(PagedKvCachePool& pool,
                                      std::size_t max_seq_len)
     : pool_(&pool), sequence_(pool, max_seq_len),
-      capacity_(max_seq_len), written_(kLayers, false) {
+      capacity_(max_seq_len), written_(kLayers, false),
+      device_cache_length_i32_(DType::I32, {1}, DeviceType::CUDA),
+      device_position_i32_(DType::I32, {1}, DeviceType::CUDA) {
   require_qwen3_pool();
   if (max_seq_len == 0 || max_seq_len > kMaxSequence)
     error("max_seq_len must be in [1,512]");
@@ -59,8 +61,42 @@ void Qwen3PagedKvCache::begin_decode() {
   begin_block_count_ = sequence_.block_count();
   pending_position_ = length_;
   sequence_.append_tokens(1);
+  const int32_t cache_length = static_cast<int32_t>(pending_position_ + 1);
+  CUDA_CHECK(cudaMemcpy(device_cache_length_i32_.data(), &cache_length,
+                        sizeof(cache_length), cudaMemcpyHostToDevice));
+  const int32_t position = static_cast<int32_t>(pending_position_);
+  CUDA_CHECK(cudaMemcpy(device_position_i32_.data(), &position, sizeof(position),
+                        cudaMemcpyHostToDevice));
   std::fill(written_.begin(), written_.end(), false);
   transaction_ = Transaction::Decode;
+}
+
+void Qwen3PagedKvCache::append_layer_kv_device(
+    std::size_t layer, const Tensor& key, const Tensor& value,
+    const Tensor& device_block_table_i32, cudaStream_t stream) {
+  require_pending("append_layer_kv_device");
+  if (layer >= kLayers) error("layer out of range");
+  if (written_[layer]) error("layer written twice");
+  require_kv_tensor(key, "key");
+  require_kv_tensor(value, "value");
+  if (device_block_table_i32.device() != DeviceType::CUDA ||
+      device_block_table_i32.dtype() != DType::I32 ||
+      !device_block_table_i32.is_contiguous() ||
+      device_block_table_i32.shape().size() != 1 ||
+      device_block_table_i32.shape()[0] !=
+          static_cast<int64_t>(sequence_.block_count()))
+    error("device_block_table must be CUDA/I32/contiguous with cache block count");
+  cuda_paged_kv_write_decode(key, value, *pool_, layer,
+                             device_block_table_i32,
+                             device_cache_length_i32_, kKvHeads, kHeadDim, stream);
+  written_[layer] = true;
+}
+
+void Qwen3PagedKvCache::mark_layer_kv_device_written(std::size_t layer) {
+  require_pending("mark_layer_kv_device_written");
+  if (layer >= kLayers) error("layer out of range");
+  if (written_[layer]) error("layer written twice");
+  written_[layer] = true;
 }
 
 void Qwen3PagedKvCache::append_layer_kv(std::size_t layer, const Tensor& key,
@@ -98,6 +134,13 @@ void Qwen3PagedKvCache::abort_decode() noexcept {
     std::terminate();
   }
   length_ = begin_length_;
+  const int32_t restored_length = static_cast<int32_t>(length_);
+  if (device_cache_length_i32_.data() != nullptr)
+    cudaMemcpy(device_cache_length_i32_.data(), &restored_length,
+               sizeof(restored_length), cudaMemcpyHostToDevice);
+  if (device_position_i32_.data() != nullptr)
+    cudaMemcpy(device_position_i32_.data(), &restored_length,
+               sizeof(restored_length), cudaMemcpyHostToDevice);
   pending_position_ = 0;
   transaction_ = Transaction::None;
   std::fill(written_.begin(), written_.end(), false);
@@ -108,6 +151,13 @@ void Qwen3PagedKvCache::release_all() noexcept {
   abort_decode();
   sequence_.release_all();
   length_ = 0;
+  const int32_t zero = 0;
+  if (device_cache_length_i32_.data() != nullptr)
+    cudaMemcpy(device_cache_length_i32_.data(), &zero, sizeof(zero),
+               cudaMemcpyHostToDevice);
+  if (device_position_i32_.data() != nullptr)
+    cudaMemcpy(device_position_i32_.data(), &zero, sizeof(zero),
+               cudaMemcpyHostToDevice);
   pending_position_ = 0;
   std::fill(written_.begin(), written_.end(), false);
 }
